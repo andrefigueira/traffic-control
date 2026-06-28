@@ -29,6 +29,7 @@ The point where it stops being a toy and starts saving real work.
 - [ ] Plugin: `PreToolUse` hook checks and auto-claims on Edit / Write / MultiEdit, blocks on conflict
 - [ ] Plugin: `Stop` / `PostToolUse` hook releases claims and posts a done update
 - [ ] MCP server: `file_flight_plan`, `request_clearance`, `handoff`, `whos_flying`, `read_board`, `check_path`
+- [ ] Docs: quickstart and integration guide (install plugin, start the tower, coordinate two agents)
 
 Exit criteria: two Claude Code agents in the same tree, the second is held in a pattern when it reaches for a file the first is editing and told who holds it.
 

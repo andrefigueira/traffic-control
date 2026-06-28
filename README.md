@@ -28,6 +28,7 @@ The model is air traffic control, and the metaphor gives the whole product its v
 | **Handoff** | Releasing or passing a claim to another agent. |
 | **Conflict alert** | The warning when two agents reach for the same path. |
 | **The frequency** | The pub/sub channel everyone is tuned to. |
+| **The board** | The running broadcast of flight plans and done updates. |
 | **Callsign** | An agent's identity on the board. |
 | **The scope** | The dashboard: who is in the air and what they hold. |
 
