@@ -20,7 +20,8 @@ go.work.sum
 *.db
 *.sqlite
 *.sqlite3
-/.bulletin/
+/.traffic-control/
+/.tc/
 
 # Env and secrets
 .env

@@ -15,28 +15,28 @@ The smallest thing that proves the idea. Drives entirely through a CLI so it is 
 
 - [ ] Session registration: agents join and leave, presence is tracked
 - [ ] Claims: claim and release a path, with a simple in-memory owner map
-- [ ] Bulletin feed: post and read announcements
-- [ ] Pub/sub bus: subscribers receive pushed events over the local transport
-- [ ] CLI client: `announce`, `claim`, `release`, `who`, `board`
+- [ ] Broadcast board: post and read announcements (flight plans and done updates)
+- [ ] Pub/sub frequency: subscribers receive pushed events over the local transport
+- [ ] CLI client: `flightplan`, `clearance`, `handoff`, `whos-flying`, `board`
 
-Exit criteria: two terminal sessions can see each other, claim paths, and a second claim on a held path is reported as a conflict.
+Exit criteria: two terminal sessions can see each other, request clearance on paths, and a second request on a held path is reported as a conflict alert.
 
 ## Phase 2: Claude integration
 
 The point where it stops being a toy and starts saving real work.
 
-- [ ] Plugin: `SessionStart` hook registers the agent and pulls the bulletin into context
+- [ ] Plugin: `SessionStart` hook registers the agent and pulls the board into context
 - [ ] Plugin: `PreToolUse` hook checks and auto-claims on Edit / Write / MultiEdit, blocks on conflict
 - [ ] Plugin: `Stop` / `PostToolUse` hook releases claims and posts a done update
-- [ ] MCP server: `announce`, `claim`, `release`, `whos_working_on`, `read_bulletin`, `check_path`
+- [ ] MCP server: `file_flight_plan`, `request_clearance`, `handoff`, `whos_flying`, `read_board`, `check_path`
 
-Exit criteria: two Claude Code agents in the same tree, the second is blocked from overwriting a file the first is editing and told who holds it.
+Exit criteria: two Claude Code agents in the same tree, the second is held in a pattern when it reaches for a file the first is editing and told who holds it.
 
 ## Phase 3: Robustness
 
 Make it trustworthy enough to leave running.
 
-- [ ] Leases and heartbeats: claims auto-expire so a crashed agent never deadlocks the tree
+- [ ] Leases and heartbeats: clearances auto-expire so a crashed agent never deadlocks the tree
 - [ ] Durable storage so a daemon restart keeps the board
 - [ ] Glob and directory claims, not just single files
 - [ ] Conflict policy: advisory-by-default with opt-in hard blocking per path or pattern
@@ -60,5 +60,5 @@ Only if demand is real.
 ## Open questions
 
 - How hard should the default enforcement be before it annoys more than it helps?
-- Is the bulletin valuable enough on its own that worktree users would run it just for presence?
-- What is the right granularity for claims: file, symbol, directory, or intent?
+- Is the board valuable enough on its own that worktree users would run it just for presence?
+- What is the right granularity for clearance: file, symbol, directory, or intent?

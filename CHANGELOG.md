@@ -6,7 +6,11 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ### Added
 
-- Initial concept and project framing: a coordination and awareness daemon for local AI coding agents working on the same tree, positioned as the same-tree alternative to git worktrees.
-- README describing the problem, the idea, the three-piece architecture (daemon, Claude plugin, MCP server), and the design stance of awareness-first with advisory claims.
-- Roadmap with phased delivery from scaffolding through MVP, Claude integration, robustness, the office view, and possible multi-machine support.
+- Initial concept and project framing: AI traffic control for coding agents sharing one working tree, positioned as the same-tree alternative to git worktrees.
+- README describing the problem, the idea, the air traffic control vocabulary, the three-piece architecture (tower daemon, Claude plugin, MCP server), and the design stance of separation-first with advisory clearances.
+- Roadmap with phased delivery from scaffolding through MVP, Claude integration, robustness, the scope (dashboard), and possible multi-machine support.
 - Private GitHub repository and an issue backlog mapping the roadmap.
+
+### Changed
+
+- Renamed the project from the working name "Bulletin" to **Traffic Control**, on the "AI traffic control" play on air traffic control. Repository renamed from `bulletins` to `traffic-control`. The aviation metaphor now carries the product vocabulary (tower, clearance, separation, holding pattern, handoff, conflict alert).
