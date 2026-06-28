@@ -2,67 +2,111 @@
 
 **AI traffic control for coding agents sharing one working tree.**
 
-The clue is in the pun. Air traffic control exists so independent aircraft can use the same airspace without colliding: a tower grants clearance, keeps everyone separated, and broadcasts who is where. Traffic Control does the same for AI coding agents working in the same repository.
+Air traffic control lets independent aircraft use the same airspace without colliding: a tower broadcasts who is where and grants clearance to act. Traffic Control does the same for AI coding agents working in the same repository. A small background daemon (the tower) tracks who is in the air, what each agent is touching, and a shared board of what everyone is doing, then warns or blocks when two agents reach for the same file.
 
-## The problem
+It is a single Go binary with zero dependencies. Install it, start the tower, and Claude Code agents coordinate automatically through hooks and an MCP server.
 
-Run more than one Claude Code agent in the same repository and they clobber each other. Each agent has its own context and no idea the others exist, so two of them edit the same file and one silently overwrites the other's work. No warning, no error, just lost output that surfaces later.
+## What it is for
 
-The mainstream answer is **git worktrees**: give every agent its own checkout so they physically cannot collide, then merge at the end. That works, with real costs. You pay for N copies of the repo, N sets of dependencies and build caches, port and environment collisions, divergent local database state, and a merge step that only reveals conflicts after the parallel work is done. Worktrees also leave the agents blind to each other.
+Most teams run parallel agents with **git worktrees**: each agent gets its own checkout, so they cannot touch the same files, and you merge afterwards. That is the right tool when you want isolation, and Traffic Control does not replace it.
 
-## The idea
+Traffic Control is for the case worktrees do not serve: when you want several agents in **one shared tree** with **one live environment**, a single dev server, a single database, hot reload intact, without N checkouts to provision and reconcile. In that setup the agents are otherwise blind to each other. Traffic Control gives them awareness, and optional file-level clearance, so they stop overwriting each other's work.
 
-Traffic Control is the **same-tree alternative to worktrees**. Multiple agents work on one working directory at the same time, kept apart by clearance and awareness rather than by copies. It is the option for when you want a single live environment: one dev server, one database, one set of generated artifacts, hot reload intact. Conflicts are caught at second zero, before work starts, which is far cheaper than discovering them at merge time.
+Be clear about the trade. Worktrees give isolation and defer all conflict discovery to merge time. Traffic Control gives shared-environment coordination and catches *file-level* collisions up front. It does not catch *semantic* conflicts (one agent changing a function signature that another agent's file depends on). See [Honest limitations](#honest-limitations).
 
-The model is air traffic control, and the metaphor gives the whole product its vocabulary.
+## Install
+
+Needs Go to build. One command:
+
+```sh
+git clone https://github.com/andrefigueira/traffic-control
+cd traffic-control
+./install.sh
+```
+
+That builds the `tc` binary and installs it to `~/.local/bin`. Then, in any project you want coordinated:
+
+```sh
+tc serve            # start the tower (leave it running in a terminal or as a service)
+cd my/project
+tc install-claude   # wire this project's Claude Code hooks + MCP server
+```
+
+Run Claude Code in that project as usual. That is the whole setup.
+
+`tc install-claude` merges three hooks into `.claude/settings.json` and the MCP server into `.mcp.json`, without disturbing your existing config. Run `tc install-claude --print` to see exactly what it adds before it writes anything.
+
+## How the Claude integration works
+
+`tc` is the daemon, the CLI, the hook handler, and the MCP server in one binary.
+
+**Hooks** (automatic, no agent effort):
+- `SessionStart` checks the agent in and injects the current board into its context, so a fresh agent immediately knows who else is working and on what.
+- `PreToolUse` on Edit / Write / MultiEdit requests clearance for the target file. If another agent holds it exclusively, the edit is blocked and the agent is told who holds it. Otherwise it proceeds, with an advisory note if someone else is nearby.
+- `Stop` hands off the agent's clearances when its turn ends, so holds never outlive active work.
+
+**MCP tools** (deliberate, the agent chooses to call them):
+`file_flight_plan`, `request_clearance`, `handoff`, `whos_flying`, `read_board`, `check_path`.
+
+Enforcement is **advisory by default**: it warns but lets the edit through. Set `TC_ENFORCE=1` to make `PreToolUse` request exclusive clearance and hard-block on any held path.
+
+## CLI
+
+You can drive the tower by hand, which is also how you test it without Claude.
+
+| Command | Does |
+| --- | --- |
+| `tc serve` | Run the tower |
+| `tc status` | Tower health and who is flying |
+| `tc flightplan "msg" --paths a,b` | Announce what you are about to do |
+| `tc clearance PATH --mode exclusive` | Request to hold a path |
+| `tc handoff [PATH]` | Release a path, or all of yours |
+| `tc check PATH` | Is this path already held |
+| `tc whos-flying` | List checked-in agents |
+| `tc board` | Read the broadcast board |
+| `tc watch` | Stream the live frequency |
 
 ## The vocabulary
 
 | Aviation | In Traffic Control |
 | --- | --- |
 | **The tower** | The daemon. Everything checks in with it. |
-| **Flight plan** | An agent declaring what it is about to work on. |
-| **Clearance** | A granted claim on a path. You are cleared to edit. |
-| **Separation** | The core guarantee: keep two agents off the same file. |
-| **Holding pattern** | What a blocked agent does while a path is held by another. |
-| **Handoff** | Releasing or passing a claim to another agent. |
+| **Flight plan** | An agent announcing what it is about to work on. |
+| **Clearance** | A held path. Advisory by default, exclusive on request. |
+| **Holding pattern** | A blocked agent waiting on a path another holds. |
+| **Handoff** | Releasing a held path. |
 | **Conflict alert** | The warning when two agents reach for the same path. |
-| **The frequency** | The pub/sub channel everyone is tuned to. |
+| **The frequency** | The pub/sub event stream (`tc watch`, or `GET /events`). |
 | **The board** | The running broadcast of flight plans and done updates. |
-| **Callsign** | An agent's identity on the board. |
-| **The scope** | The dashboard: who is in the air and what they hold. |
+| **Callsign** | An agent's identity. |
 
-## How it works
+## Architecture
 
-Three pieces:
+- **The tower** (`internal/tower`): in-memory state of sessions, clearances, and the board, plus a non-blocking pub/sub broker. Transport agnostic.
+- **HTTP API** (`internal/api`): localhost JSON over `127.0.0.1:7700` with a Server-Sent Events stream. No auth, no TLS; it is a single-user local coordinator.
+- **The `tc` binary** (`cmd/tc`): CLI, hook handler, and MCP stdio server, all talking to the tower through one client.
 
-1. **The tower (Go daemon).** A long-running local process holding live state: active sessions (presence), clearances on paths and globs, and an append-only broadcast feed. A pub/sub frequency pushes updates the moment anything changes. In-memory for speed, durable so a restart keeps the board.
+## Honest limitations
 
-2. **The Claude plugin.** Wires the tower into Claude Code via hooks:
-   - `SessionStart`: register the agent and pull the current board into context, so a fresh agent immediately knows what everyone else is doing.
-   - `PreToolUse` on Edit / Write / MultiEdit: request clearance for the target path. Cleared, proceed. Held by another live agent, enter a holding pattern and tell the agent who has it and why.
-   - `Stop` / `PostToolUse`: hand off claims and post a short done update.
+This is an MVP and the design has real edges. Stated plainly rather than hidden:
 
-3. **The MCP server.** Tools the agent calls deliberately: `file_flight_plan`, `request_clearance`, `handoff`, `whos_flying`, `read_board`, `check_path`. Hooks give automatic enforcement, MCP gives conscious coordination.
-
-## Design stance
-
-- **Separation is the product, the hard lock is one setting.** Hard locking on autonomous agents is brittle: an agent crashes holding a clearance, or forgets to release it, and the tree deadlocks. So clearances default to advisory with leases and heartbeats that expire automatically. Hard blocking is opt-in for genuinely hot files.
-- **Local first.** Dozens of agents on one machine is the target, so an in-process pub/sub frequency over a local socket is plenty. No external broker.
-- **Frictionless or it dies.** Install the plugin, start the tower, done.
-
-## The name
-
-`Traffic Control`, on the **AI traffic control** play on air traffic control. The aviation metaphor is the whole identity, from the tower down to the radio chatter. The name also sidesteps crowded developer-tool namespaces: `Tower` is a paid Git client, `Squawk` is a Postgres linter, and most of the obvious single words were already taken.
+- **File-level only.** Clearance is by path. It does not model semantic coupling, so two agents editing different files can still break each other's build. The board (awareness) is what helps there, not the lock.
+- **Bash edits bypass it.** Hooks fire on Edit / Write / MultiEdit. An agent that writes files via `sed -i`, a formatter, or a codemod through Bash is not seen by the tower. Tracked in the issues.
+- **Advisory by default does not prevent overwrites**, it only warns. Hard prevention needs `TC_ENFORCE=1`, which brings the usual locking trade-offs.
+- **Leases can expire mid-task.** A long-reasoning agent that holds a path for many minutes between tool calls could in principle have its lease expire. Heartbeat timing is an open question (see issues).
+- **In-memory only.** A tower restart loses current state. Durable storage is on the roadmap.
+- **Platform risk.** Anthropic ships `isolation: worktree` and owns the hook API this is built on. A native coordination primitive could land at any time.
 
 ## Status
 
-Concept and scaffolding. Nothing is built yet. The backlog lives in [GitHub Issues](https://github.com/andrefigueira/traffic-control/issues), the plan in [ROADMAP.md](./ROADMAP.md), and the running history in [CHANGELOG.md](./CHANGELOG.md).
+MVP built and tested: the tower, presence, the board, advisory and exclusive clearance with directory and glob matching, the pub/sub frequency, the full CLI, the three Claude hooks, and the MCP server. Unit tests cover the core; an end-to-end path is verified.
+
+Plan in [ROADMAP.md](./ROADMAP.md), history in [CHANGELOG.md](./CHANGELOG.md), backlog in [GitHub Issues](https://github.com/andrefigueira/traffic-control/issues).
 
 ## Prior art
 
-- **git worktrees** (`isolation: worktree` in Claude Code): isolation by copies, no awareness.
-- **Agent Teams / shared task-list files**: a shared markdown task list with crude file locking, polled rather than pushed.
-- **`agent-comms`**: the closest existing project. Agents announce files and negotiate before starting. Python stdlib, file-based, no daemon, no live push, no presence, no enforcement.
+- **git worktrees** (`isolation: worktree` in Claude Code): isolation by separate checkouts, no awareness between agents.
+- **Agent Teams / shared task-list files**: a shared markdown list with crude file locking, polled rather than pushed.
+- **`agent-comms`**: agents announce files and negotiate before starting. Python stdlib, single file, no daemon, no presence, no enforcement. Simpler than Traffic Control, and for some users that simplicity is the point.
 
-Traffic Control's distinct shape is the combination: a persistent tower, real pub/sub, live presence, a broadcast board, and first-class Claude hook enforcement plus MCP, all aimed at the same-tree case.
+Traffic Control's bet is that a persistent tower with live presence, a broadcast board, and first-class Claude hook plus MCP integration is worth the heavier footprint for agents sharing one tree.

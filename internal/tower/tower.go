@@ -1,0 +1,352 @@
+// Package tower is the heart of Traffic Control: the in-memory state of who is
+// in the air, what paths they hold, and the broadcast board. It is transport
+// agnostic. The HTTP API, the CLI and the Claude hooks all drive this same
+// type, so the behaviour is identical however you reach it.
+package tower
+
+import (
+	"fmt"
+	"sort"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/andrefigueira/traffic-control/internal/protocol"
+)
+
+// Defaults. Leases are deliberately generous: an autonomous agent may sit on a
+// path for many minutes between tool calls while it reasons, and an expiry that
+// fires mid-edit would reintroduce the exact overwrite we exist to prevent. A
+// long lease plus refresh-on-interaction is the safer default; tune with care.
+const (
+	DefaultLease       = 30 * time.Minute
+	DefaultSessionIdle = 2 * time.Hour
+	maxBoardEntries    = 500
+)
+
+// Tower holds all live coordination state.
+type Tower struct {
+	mu         sync.Mutex
+	sessions   map[string]*protocol.Session
+	clearances map[string]*protocol.Clearance
+	board      []protocol.BoardEntry
+	broker     *Broker
+	lease      time.Duration
+	sessIdle   time.Duration
+	seq        uint64
+	startedAt  time.Time
+}
+
+// New returns a tower with default timings.
+func New() *Tower {
+	return &Tower{
+		sessions:   make(map[string]*protocol.Session),
+		clearances: make(map[string]*protocol.Clearance),
+		broker:     NewBroker(),
+		lease:      DefaultLease,
+		sessIdle:   DefaultSessionIdle,
+		startedAt:  time.Now(),
+	}
+}
+
+// Broker exposes the pub/sub frequency for the SSE handler.
+func (t *Tower) Broker() *Broker { return t.broker }
+
+func (t *Tower) id(prefix string) string {
+	n := atomic.AddUint64(&t.seq, 1)
+	return fmt.Sprintf("%s_%d_%d", prefix, time.Now().UnixNano(), n)
+}
+
+// publish is called with the lock held; it copies the event out and releases
+// nothing, so callers must not block. The broker itself is non-blocking.
+func (t *Tower) publish(typ string, payload interface{}) {
+	t.broker.Publish(protocol.Event{Type: typ, At: time.Now(), Payload: payload})
+}
+
+// Register checks an agent in, or refreshes an existing session with the same
+// callsign. New callsigns emit presence.join.
+func (t *Tower) Register(callsign, project string, pid int) *protocol.Session {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	now := time.Now()
+	s, existed := t.sessions[callsign]
+	if !existed {
+		s = &protocol.Session{Callsign: callsign, Project: project, PID: pid, StartedAt: now}
+		t.sessions[callsign] = s
+	}
+	if project != "" {
+		s.Project = project
+	}
+	if pid != 0 {
+		s.PID = pid
+	}
+	s.LastSeen = now
+	out := *s
+	if !existed {
+		t.publish(protocol.EventPresenceJoin, out)
+	}
+	return &out
+}
+
+// Heartbeat refreshes a session and extends the lease on every clearance it
+// holds, so an actively working agent never has a path yanked out from under
+// it.
+func (t *Tower) Heartbeat(callsign string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	s, ok := t.sessions[callsign]
+	if !ok {
+		return false
+	}
+	now := time.Now()
+	s.LastSeen = now
+	for _, c := range t.clearances {
+		if c.Holder == callsign {
+			c.ExpiresAt = now.Add(t.lease)
+		}
+	}
+	return true
+}
+
+// Deregister removes a session and hands off everything it held.
+func (t *Tower) Deregister(callsign string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if _, ok := t.sessions[callsign]; !ok {
+		return
+	}
+	t.releaseLocked(callsign, "")
+	delete(t.sessions, callsign)
+	t.publish(protocol.EventPresenceLeave, map[string]string{"callsign": callsign})
+}
+
+// RequestClearance is the core admission decision. It expires stale state, then
+// looks for an overlapping clearance held by another callsign. An exclusive
+// conflict is denied; an advisory overlap is granted but flagged so the caller
+// can warn. A request that only overlaps the caller's own clearances is always
+// granted (and refreshes them).
+func (t *Tower) RequestClearance(callsign, reqPath, mode, note string, ttl time.Duration) protocol.ClearanceResult {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.expireLocked()
+
+	if mode == "" {
+		mode = protocol.ModeAdvisory
+	}
+	if ttl <= 0 {
+		ttl = t.lease
+	}
+	reqPath = protocol.NormalizePath(reqPath)
+
+	var advisoryOverlap *protocol.Clearance
+	for _, c := range t.clearances {
+		if c.Holder == callsign {
+			continue
+		}
+		if !protocol.PathsOverlap(c.Path, reqPath) {
+			continue
+		}
+		// An exclusive clearance held by someone else, or an exclusive request
+		// against any existing hold, is a hard conflict.
+		if c.Mode == protocol.ModeExclusive || mode == protocol.ModeExclusive {
+			conflict := *c
+			t.publish(protocol.EventConflictAlert, map[string]interface{}{
+				"requester": callsign, "path": reqPath, "held_by": c.Holder, "held_path": c.Path,
+			})
+			return protocol.ClearanceResult{
+				Granted:  false,
+				Conflict: &conflict,
+				Message:  fmt.Sprintf("%s is holding %s (%s). Hold for handoff or coordinate on the board.", c.Holder, c.Path, c.Mode),
+			}
+		}
+		cc := *c
+		advisoryOverlap = &cc
+	}
+
+	// Grant (or refresh an existing identical hold by this caller).
+	now := time.Now()
+	var granted *protocol.Clearance
+	for _, c := range t.clearances {
+		if c.Holder == callsign && protocol.NormalizePath(c.Path) == reqPath {
+			c.ExpiresAt = now.Add(ttl)
+			c.Mode = mode
+			if note != "" {
+				c.Note = note
+			}
+			granted = c
+			break
+		}
+	}
+	if granted == nil {
+		granted = &protocol.Clearance{
+			ID:        t.id("clr"),
+			Path:      reqPath,
+			Holder:    callsign,
+			Mode:      mode,
+			Note:      note,
+			GrantedAt: now,
+			ExpiresAt: now.Add(ttl),
+		}
+		t.clearances[granted.ID] = granted
+	}
+	out := *granted
+	t.publish(protocol.EventClearanceGranted, out)
+
+	res := protocol.ClearanceResult{Granted: true, Clearance: &out, Message: "cleared"}
+	if advisoryOverlap != nil {
+		res.Advisory = true
+		res.Conflict = advisoryOverlap
+		res.Message = fmt.Sprintf("cleared, but %s also holds %s (advisory). Worth a look at the board.", advisoryOverlap.Holder, advisoryOverlap.Path)
+	}
+	return res
+}
+
+// Handoff releases the caller's clearances overlapping the given path. An empty
+// path releases everything the caller holds.
+func (t *Tower) Handoff(callsign, releasePath string) int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.releaseLocked(callsign, releasePath)
+}
+
+func (t *Tower) releaseLocked(callsign, releasePath string) int {
+	releasePath = protocol.NormalizePath(releasePath)
+	released := 0
+	for id, c := range t.clearances {
+		if c.Holder != callsign {
+			continue
+		}
+		if releasePath != "" && !protocol.PathsOverlap(c.Path, releasePath) {
+			continue
+		}
+		out := *c
+		delete(t.clearances, id)
+		t.publish(protocol.EventClearanceHandoff, out)
+		released++
+	}
+	return released
+}
+
+// Check reports whether any live clearance overlaps the path.
+func (t *Tower) Check(p string) protocol.CheckResult {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.expireLocked()
+	p = protocol.NormalizePath(p)
+	for _, c := range t.clearances {
+		if protocol.PathsOverlap(c.Path, p) {
+			out := *c
+			return protocol.CheckResult{Held: true, Clearance: &out}
+		}
+	}
+	return protocol.CheckResult{Held: false}
+}
+
+// WhosFlying returns the current sessions, most recently seen first.
+func (t *Tower) WhosFlying() []protocol.Session {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.expireLocked()
+	out := make([]protocol.Session, 0, len(t.sessions))
+	for _, s := range t.sessions {
+		out = append(out, *s)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].LastSeen.After(out[j].LastSeen) })
+	return out
+}
+
+// Clearances returns all live clearances.
+func (t *Tower) Clearances() []protocol.Clearance {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.expireLocked()
+	out := make([]protocol.Clearance, 0, len(t.clearances))
+	for _, c := range t.clearances {
+		out = append(out, *c)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].GrantedAt.After(out[j].GrantedAt) })
+	return out
+}
+
+// PostBoard appends an entry to the broadcast board.
+func (t *Tower) PostBoard(callsign, kind, message string, paths []string) protocol.BoardEntry {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if kind == "" {
+		kind = protocol.KindNote
+	}
+	e := protocol.BoardEntry{
+		ID:       t.id("brd"),
+		Callsign: callsign,
+		Kind:     kind,
+		Message:  message,
+		Paths:    paths,
+		PostedAt: time.Now(),
+	}
+	t.board = append(t.board, e)
+	if len(t.board) > maxBoardEntries {
+		t.board = t.board[len(t.board)-maxBoardEntries:]
+	}
+	t.publish(protocol.EventBoardPosted, e)
+	return e
+}
+
+// ReadBoard returns the most recent entries, newest last, capped at limit.
+func (t *Tower) ReadBoard(limit int) []protocol.BoardEntry {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if limit <= 0 || limit > len(t.board) {
+		limit = len(t.board)
+	}
+	out := make([]protocol.BoardEntry, limit)
+	copy(out, t.board[len(t.board)-limit:])
+	return out
+}
+
+// Sweep expires stale clearances and idle sessions. The API server calls this
+// on a ticker so a crashed agent's holds do not linger.
+func (t *Tower) Sweep() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.expireLocked()
+}
+
+func (t *Tower) expireLocked() {
+	now := time.Now()
+	for id, c := range t.clearances {
+		if now.After(c.ExpiresAt) {
+			out := *c
+			delete(t.clearances, id)
+			t.publish(protocol.EventClearanceExpired, out)
+		}
+	}
+	for cs, s := range t.sessions {
+		if now.Sub(s.LastSeen) > t.sessIdle {
+			t.releaseLocked(cs, "")
+			delete(t.sessions, cs)
+			t.publish(protocol.EventPresenceLeave, map[string]string{"callsign": cs, "reason": "idle"})
+		}
+	}
+}
+
+// Stats is a small snapshot for the health endpoint.
+type Stats struct {
+	Sessions    int       `json:"sessions"`
+	Clearances  int       `json:"clearances"`
+	BoardSize   int       `json:"board_size"`
+	Subscribers int       `json:"subscribers"`
+	StartedAt   time.Time `json:"started_at"`
+}
+
+// Stats returns current counts.
+func (t *Tower) Stats() Stats {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return Stats{
+		Sessions:    len(t.sessions),
+		Clearances:  len(t.clearances),
+		BoardSize:   len(t.board),
+		Subscribers: t.broker.Count(),
+		StartedAt:   t.startedAt,
+	}
+}

@@ -6,7 +6,19 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ### Added
 
-- Initial concept and project framing: AI traffic control for coding agents sharing one working tree, positioned as the same-tree alternative to git worktrees.
+- **MVP implementation in Go (zero dependencies).** The `tc` binary is the tower daemon, the CLI, the Claude hook handler, and the MCP server in one.
+  - Tower core: sessions and presence, advisory and exclusive clearances with directory and glob overlap matching, a broadcast board, leases, and a non-blocking pub/sub broker. Unit tests cover the core.
+  - HTTP API over `127.0.0.1:7700` with a Server-Sent Events frequency.
+  - CLI: `serve`, `status`, `flightplan`, `done`, `clearance`, `handoff`, `check`, `whos-flying`, `board`, `watch`.
+  - Claude Code hooks: `SessionStart` (register and inject the board), `PreToolUse` (request clearance, block exclusive conflicts), `Stop` (hand off clearances). They degrade gracefully and never block an agent when the tower is down.
+  - MCP stdio server exposing `file_flight_plan`, `request_clearance`, `handoff`, `whos_flying`, `read_board`, `check_path`.
+  - `tc install-claude` to merge the hooks and MCP server into a project's config, plus `install.sh` and a `Makefile`.
+- Honest-limitations section in the README (file-level only, Bash bypass, advisory default, lease timing, in-memory, platform risk), reflecting the hostile review.
+
+### Changed
+
+- Reframed the positioning away from "alternative to worktrees" toward a **complement** for the shared-tree case, leading with the awareness board rather than the lock, after an adversarial review found the lock-first framing overclaimed.
+- Initial concept and project framing: AI traffic control for coding agents sharing one working tree.
 - README describing the problem, the idea, the air traffic control vocabulary, the three-piece architecture (tower daemon, Claude plugin, MCP server), and the design stance of separation-first with advisory clearances.
 - Roadmap with phased delivery from scaffolding through MVP, Claude integration, robustness, the scope (dashboard), and possible multi-machine support.
 - Private GitHub repository and an issue backlog mapping the roadmap.
