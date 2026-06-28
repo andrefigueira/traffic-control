@@ -41,14 +41,14 @@ Make it trustworthy enough to leave running.
 - [ ] Durable storage so a daemon restart keeps the board
 - [ ] Glob and directory claims, not just single files
 - [ ] Conflict policy: advisory-by-default with opt-in hard blocking per path or pattern
-- [ ] Graceful degradation when the daemon is down (agents proceed, warn, do not break)
+- [ ] Graceful degradation when the tower is down (agents proceed, warn, do not break)
 
-## Phase 4: The office view
+## Phase 4: The scope
 
 Make the coordination visible to the human in the loop.
 
-- [ ] TUI or small web dashboard: live presence, who holds what, the rolling bulletin feed
-- [ ] Notifications for conflicts and announcements
+- [ ] TUI or small web dashboard (the scope): live presence, who holds what clearance, the rolling board
+- [ ] Notifications for conflict alerts and announcements
 
 ## Phase 5: Beyond one machine (maybe)
 
