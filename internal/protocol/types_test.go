@@ -16,6 +16,8 @@ func TestPathsOverlap(t *testing.T) {
 		{"internal/*.go", "internal/api/server.go", false},
 		{"cmd/tc", "cmd/tc/main.go", true}, // holding the dir covers files under it
 		{"src/a.go", "lib/a.go", false},
+		{"app/[id].tsx", "app/x.tsx", false}, // brackets are literal, not a glob class
+		{"app/[id].tsx", "app/[id].tsx", true},
 		{"", "a.go", false},
 	}
 	for _, c := range cases {

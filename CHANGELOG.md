@@ -19,6 +19,17 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 - Reframed the positioning away from "alternative to worktrees" toward a **complement** for the shared-tree case, leading with the awareness board rather than the lock, after an adversarial review found the lock-first framing overclaimed.
 - Initial concept and project framing: AI traffic control for coding agents sharing one working tree.
+
+### Fixed
+
+Following a code review of the MVP:
+
+- **PreToolUse advisory overlap** now injects model context via `additionalContext` with no permission decision. It previously returned `permissionDecision: "allow"`, which auto-approved the edit (skipping the user's normal prompt) and sent the warning to the user rather than the model.
+- **MCP server no longer replies to JSON-RPC notifications.** Notifications are detected structurally (absent id) rather than by a hard-coded method list, so id-less messages never get a spurious response.
+- **Conflict messages name the earliest-granted holder deterministically** instead of whichever entry Go's randomized map iteration landed on.
+- **`install-claude` merge is idempotent** on the exact hook command string, so re-running it never duplicates entries.
+- **Path overlap treats only `*` and `?` as glob markers**, so literal bracket filenames (a Next.js route like `app/[id].tsx`) match literally rather than as a character class.
+- Added integration tests for the HTTP API, the MCP JSON-RPC layer, `install-claude` idempotency, and tower concurrency under the race detector.
 - README describing the problem, the idea, the air traffic control vocabulary, the three-piece architecture (tower daemon, Claude plugin, MCP server), and the design stance of separation-first with advisory clearances.
 - Roadmap with phased delivery from scaffolding through MVP, Claude integration, robustness, the scope (dashboard), and possible multi-machine support.
 - Private GitHub repository and an issue backlog mapping the roadmap.

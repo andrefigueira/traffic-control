@@ -43,7 +43,13 @@ func (s *Server) Handler() http.Handler {
 
 // Serve starts the sweeper and blocks serving HTTP until ctx is cancelled.
 func (s *Server) Serve(ctx context.Context, addr string) error {
-	srv := &http.Server{Addr: addr, Handler: s.Handler()}
+	// ReadHeaderTimeout guards against a slow-header client. Read and Write
+	// timeouts are intentionally left unset so the SSE stream is not killed.
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           s.Handler(),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)

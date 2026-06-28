@@ -126,13 +126,25 @@ func PathsOverlap(a, b string) bool {
 	if a == b {
 		return true
 	}
-	if ok, _ := path.Match(a, b); ok {
-		return true
+	// Only treat a side as a glob when it actually contains * or ?, so literal
+	// filenames with brackets (a Next.js route like app/[id].tsx) match
+	// literally rather than being read as a character class.
+	if hasGlobMeta(a) {
+		if ok, _ := path.Match(a, b); ok {
+			return true
+		}
 	}
-	if ok, _ := path.Match(b, a); ok {
-		return true
+	if hasGlobMeta(b) {
+		if ok, _ := path.Match(b, a); ok {
+			return true
+		}
 	}
 	return dirAncestor(a, b) || dirAncestor(b, a)
+}
+
+// hasGlobMeta reports whether p looks like a glob pattern (contains * or ?).
+func hasGlobMeta(p string) bool {
+	return strings.ContainsAny(p, "*?")
 }
 
 // dirAncestor reports whether dir is a directory ancestor of p.

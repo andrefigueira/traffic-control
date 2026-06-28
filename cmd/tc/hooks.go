@@ -53,8 +53,8 @@ func hookCallsign(in hookInput) string {
 	if in.SessionID != "" {
 		// A short, readable callsign from the session id.
 		s := in.SessionID
-		if len(s) > 8 {
-			s = s[:8]
+		if len(s) > 12 {
+			s = s[:12]
 		}
 		return "claude-" + s
 	}
@@ -152,12 +152,15 @@ func hookPreToolUse(in hookInput) {
 		return // could not reach tower mid-call: allow
 	}
 	if !res.Granted {
-		emitPreToolDeny(fmt.Sprintf("Traffic Control: %s. Another agent is working here. Coordinate on the board (tc board) or pick a different file.", res.Message))
+		emitPreToolDeny(fmt.Sprintf("Traffic Control: %s Another agent is working here; coordinate on the board (tc board) or pick a different file.", res.Message))
 		return
 	}
 	if res.Advisory && res.Conflict != nil {
-		// Allowed, but make the model aware it is on shared ground.
-		emitPreToolAllow(fmt.Sprintf("Traffic Control: cleared, but %s is also touching %s. Proceed with care.", res.Conflict.Holder, res.Conflict.Path))
+		// Inject context so the model knows it is on shared ground, without a
+		// permissionDecision. Returning "allow" here would auto-approve the
+		// tool (skipping the user's normal prompt) and the reason would go to
+		// the user, not the model, so it would not achieve the intent.
+		emitPreToolContext(fmt.Sprintf("Traffic Control: cleared, but %s is also touching %s. Proceed with care and avoid clobbering their work.", res.Conflict.Holder, res.Conflict.Path))
 	}
 }
 
@@ -207,12 +210,13 @@ func emitPreToolDeny(reason string) {
 	_ = json.NewEncoder(os.Stdout).Encode(out)
 }
 
-func emitPreToolAllow(reason string) {
+// emitPreToolContext injects context for the model without a permission
+// decision, so the normal permission flow (prompts and rules) is untouched.
+func emitPreToolContext(ctx string) {
 	out := map[string]interface{}{
 		"hookSpecificOutput": map[string]interface{}{
-			"hookEventName":            "PreToolUse",
-			"permissionDecision":       "allow",
-			"permissionDecisionReason": reason,
+			"hookEventName":     "PreToolUse",
+			"additionalContext": ctx,
 		},
 	}
 	_ = json.NewEncoder(os.Stdout).Encode(out)

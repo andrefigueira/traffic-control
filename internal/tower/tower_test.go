@@ -1,6 +1,8 @@
 package tower
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -118,6 +120,75 @@ func TestBoardPostAndRead(t *testing.T) {
 	if entries[len(entries)-1].Callsign != "bravo" {
 		t.Fatalf("board should return newest last")
 	}
+}
+
+func TestDeregisterReleasesHolds(t *testing.T) {
+	tw := New()
+	tw.Register("alpha", "p", 0)
+	tw.RequestClearance("alpha", "a.go", protocol.ModeExclusive, "", 0)
+	tw.Deregister("alpha")
+	if len(tw.Clearances()) != 0 {
+		t.Fatalf("deregister should release holds, %d left", len(tw.Clearances()))
+	}
+	if len(tw.WhosFlying()) != 0 {
+		t.Fatalf("deregister should remove the session")
+	}
+}
+
+func TestHeartbeatExtendsLease(t *testing.T) {
+	tw := New()
+	tw.Register("alpha", "p", 0)
+	r := tw.RequestClearance("alpha", "a.go", protocol.ModeExclusive, "", time.Minute)
+	before := r.Clearance.ExpiresAt
+	time.Sleep(2 * time.Millisecond)
+	if !tw.Heartbeat("alpha") {
+		t.Fatal("heartbeat should find the session")
+	}
+	after := tw.Clearances()[0].ExpiresAt
+	if !after.After(before) {
+		t.Fatalf("heartbeat should extend the lease: before %v after %v", before, after)
+	}
+}
+
+// TestConflictHolderDeterministic guards the fix for nondeterministic holder
+// reporting: the earliest granted holder must always be named.
+func TestConflictHolderDeterministic(t *testing.T) {
+	for i := 0; i < 10; i++ {
+		tw := New()
+		tw.Register("alpha", "p", 0)
+		tw.Register("bravo", "p", 0)
+		tw.Register("charlie", "p", 0)
+		tw.RequestClearance("alpha", "a.go", protocol.ModeAdvisory, "", 0)
+		time.Sleep(time.Millisecond)
+		tw.RequestClearance("bravo", "a.go", protocol.ModeAdvisory, "", 0)
+		res := tw.RequestClearance("charlie", "a.go", protocol.ModeExclusive, "", 0)
+		if res.Granted {
+			t.Fatalf("run %d: exclusive over advisory holds should be denied", i)
+		}
+		if res.Conflict.Holder != "alpha" {
+			t.Fatalf("run %d: expected earliest holder alpha, got %s", i, res.Conflict.Holder)
+		}
+	}
+}
+
+// TestConcurrentRequests exercises the tower under the race detector.
+func TestConcurrentRequests(t *testing.T) {
+	tw := New()
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			cs := fmt.Sprintf("agent-%d", n)
+			tw.Register(cs, "p", 0)
+			tw.RequestClearance(cs, fmt.Sprintf("file-%d.go", n%5), protocol.ModeAdvisory, "", 0)
+			tw.PostBoard(cs, protocol.KindNote, "hi", nil)
+			tw.WhosFlying()
+			tw.Check(fmt.Sprintf("file-%d.go", n%5))
+			tw.Handoff(cs, "")
+		}(i)
+	}
+	wg.Wait()
 }
 
 func TestEventsPublished(t *testing.T) {

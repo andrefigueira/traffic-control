@@ -34,10 +34,12 @@ func cmdMCP(_ []string) error {
 		if err := json.Unmarshal(line, &req); err != nil {
 			continue
 		}
-		resp, isNotification := handleRPC(c, callsign, req)
-		if isNotification {
+		if isNotification(req) {
+			// JSON-RPC 2.0: a request without an id is a notification and must
+			// never receive a response.
 			continue
 		}
+		resp := handleRPC(c, callsign, req)
 		b, _ := json.Marshal(resp)
 		out.Write(b)
 		out.WriteByte('\n')
@@ -72,7 +74,14 @@ type rpcError struct {
 	Message string `json:"message"`
 }
 
-func handleRPC(c *client.Client, callsign string, req rpcRequest) (rpcResponse, bool) {
+// isNotification reports whether a JSON-RPC message is a notification, i.e. it
+// carries no id. The MCP stdio transport sends notifications/initialized and
+// others this way, and the spec forbids replying to them.
+func isNotification(req rpcRequest) bool {
+	return len(req.ID) == 0
+}
+
+func handleRPC(c *client.Client, callsign string, req rpcRequest) rpcResponse {
 	resp := rpcResponse{JSONRPC: "2.0", ID: req.ID}
 	switch req.Method {
 	case "initialize":
@@ -85,22 +94,16 @@ func handleRPC(c *client.Client, callsign string, req rpcRequest) (rpcResponse, 
 			"capabilities":    map[string]interface{}{"tools": map[string]interface{}{}},
 			"serverInfo":      map[string]interface{}{"name": "traffic-control", "version": version},
 		}
-		return resp, false
-	case "notifications/initialized", "notifications/cancelled":
-		return resp, true // notifications get no reply
 	case "ping":
 		resp.Result = map[string]interface{}{}
-		return resp, false
 	case "tools/list":
 		resp.Result = map[string]interface{}{"tools": mcpTools()}
-		return resp, false
 	case "tools/call":
 		resp.Result = mcpCall(c, callsign, req.Params)
-		return resp, false
 	default:
 		resp.Error = &rpcError{Code: -32601, Message: "method not found: " + req.Method}
-		return resp, false
 	}
+	return resp
 }
 
 func mcpTools() []map[string]interface{} {

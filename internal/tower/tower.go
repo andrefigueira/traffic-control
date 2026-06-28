@@ -138,6 +138,10 @@ func (t *Tower) RequestClearance(callsign, reqPath, mode, note string, ttl time.
 	}
 	reqPath = protocol.NormalizePath(reqPath)
 
+	// Scan all overlapping holds by other agents. Pick deterministically (the
+	// earliest granted) so the holder named in the message is stable rather
+	// than whatever Go's randomized map iteration lands on first.
+	var hardConflict *protocol.Clearance
 	var advisoryOverlap *protocol.Clearance
 	for _, c := range t.clearances {
 		if c.Holder == callsign {
@@ -149,18 +153,26 @@ func (t *Tower) RequestClearance(callsign, reqPath, mode, note string, ttl time.
 		// An exclusive clearance held by someone else, or an exclusive request
 		// against any existing hold, is a hard conflict.
 		if c.Mode == protocol.ModeExclusive || mode == protocol.ModeExclusive {
-			conflict := *c
-			t.publish(protocol.EventConflictAlert, map[string]interface{}{
-				"requester": callsign, "path": reqPath, "held_by": c.Holder, "held_path": c.Path,
-			})
-			return protocol.ClearanceResult{
-				Granted:  false,
-				Conflict: &conflict,
-				Message:  fmt.Sprintf("%s is holding %s (%s). Hold for handoff or coordinate on the board.", c.Holder, c.Path, c.Mode),
+			if hardConflict == nil || c.GrantedAt.Before(hardConflict.GrantedAt) {
+				cc := *c
+				hardConflict = &cc
 			}
+			continue
 		}
-		cc := *c
-		advisoryOverlap = &cc
+		if advisoryOverlap == nil || c.GrantedAt.Before(advisoryOverlap.GrantedAt) {
+			cc := *c
+			advisoryOverlap = &cc
+		}
+	}
+	if hardConflict != nil {
+		t.publish(protocol.EventConflictAlert, map[string]interface{}{
+			"requester": callsign, "path": reqPath, "held_by": hardConflict.Holder, "held_path": hardConflict.Path,
+		})
+		return protocol.ClearanceResult{
+			Granted:  false,
+			Conflict: hardConflict,
+			Message:  fmt.Sprintf("%s is holding %s (%s). Hold for handoff or coordinate on the board.", hardConflict.Holder, hardConflict.Path, hardConflict.Mode),
+		}
 	}
 
 	// Grant (or refresh an existing identical hold by this caller).

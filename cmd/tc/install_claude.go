@@ -82,7 +82,8 @@ func mergeSettings(path string, hooks map[string]interface{}) error {
 	for event, entry := range hooks {
 		arr, _ := existing[event].([]interface{})
 		add := entry.([]interface{})
-		if !containsTC(arr) {
+		cmd := commandIn(add)
+		if cmd == "" || !arrayHasCommand(arr, cmd) {
 			existing[event] = append(arr, add...)
 		}
 	}
@@ -106,33 +107,35 @@ func mergeMCP(path string, servers map[string]interface{}) error {
 	return writeJSONObject(path, root)
 }
 
-// containsTC reports whether a hook array already has a traffic-control command,
-// keeping the merge idempotent.
-func containsTC(arr []interface{}) bool {
+// commandIn returns the first hook command string found in an entry array.
+func commandIn(arr []interface{}) string {
 	for _, item := range arr {
 		m, _ := item.(map[string]interface{})
 		hs, _ := m["hooks"].([]interface{})
 		for _, h := range hs {
 			hm, _ := h.(map[string]interface{})
-			if cmd, _ := hm["command"].(string); len(cmd) > 0 && containsSub(cmd, "hook ") && containsSub(cmd, "tc") {
+			if cmd, _ := hm["command"].(string); cmd != "" {
+				return cmd
+			}
+		}
+	}
+	return ""
+}
+
+// arrayHasCommand reports whether a hook array already contains the exact
+// command string, which keeps the merge idempotent across re-runs.
+func arrayHasCommand(arr []interface{}, cmd string) bool {
+	for _, item := range arr {
+		m, _ := item.(map[string]interface{})
+		hs, _ := m["hooks"].([]interface{})
+		for _, h := range hs {
+			hm, _ := h.(map[string]interface{})
+			if c, _ := hm["command"].(string); c == cmd {
 				return true
 			}
 		}
 	}
 	return false
-}
-
-func containsSub(s, sub string) bool {
-	return len(sub) == 0 || (len(s) >= len(sub) && indexOf(s, sub) >= 0)
-}
-
-func indexOf(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
 }
 
 func readJSONObject(path string) (map[string]interface{}, error) {
