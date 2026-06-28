@@ -14,6 +14,8 @@ All notable changes to this project are recorded here. The format follows [Keep 
   - MCP stdio server exposing `file_flight_plan`, `request_clearance`, `handoff`, `whos_flying`, `read_board`, `check_path`.
   - `tc install-claude` to merge the hooks and MCP server into a project's config, plus `install.sh` and a `Makefile`.
 - Honest-limitations section in the README (file-level only, Bash bypass, advisory default, lease timing, in-memory, platform risk), reflecting the hostile review.
+- **The scope**: a zero-dependency live web dashboard the tower serves at its root, showing presence, held clearances, the board, and a running frequency of events (conflict alerts called out), updating over SSE. Opened with `tc scope`.
+- GitHub Actions CI: gofmt check, vet, build, and `go test -race` on push and pull request.
 
 ### Changed
 

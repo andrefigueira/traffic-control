@@ -66,6 +66,16 @@ You can drive the tower by hand, which is also how you test it without Claude.
 | `tc board` | Read the broadcast board |
 | `tc watch` | Stream the live frequency |
 
+## The scope (live dashboard)
+
+The tower serves a zero-dependency web dashboard, the scope, at its root. With the tower running:
+
+```sh
+tc scope     # prints the URL and opens it in your browser
+```
+
+Or open `http://127.0.0.1:7700/` directly. It shows, updating live over the event stream: who is in the air, what clearances are held (advisory and exclusive), the broadcast board, and a running frequency of events with conflict alerts called out. This is the awareness layer made visible, the part that helps even when you never use the lock.
+
 ## The vocabulary
 
 | Aviation | In Traffic Control |

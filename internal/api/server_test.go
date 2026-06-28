@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -10,6 +12,28 @@ import (
 	"github.com/andrefigueira/traffic-control/internal/protocol"
 	"github.com/andrefigueira/traffic-control/internal/tower"
 )
+
+func TestScopeServesDashboard(t *testing.T) {
+	ts := httptest.NewServer(New(tower.New()).Handler())
+	defer ts.Close()
+	for _, path := range []string{"/", "/scope"} {
+		resp, err := http.Get(ts.URL + path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != 200 {
+			t.Fatalf("GET %s: status %d", path, resp.StatusCode)
+		}
+		if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+			t.Fatalf("GET %s: content-type %q", path, ct)
+		}
+		if !strings.Contains(string(body), "THE SCOPE") {
+			t.Fatalf("GET %s: dashboard HTML not served", path)
+		}
+	}
+}
 
 // TestAPIRoundTrip drives the real HTTP handlers through the real client, so a
 // break anywhere on the wire (routing, JSON shapes, status codes) is caught.

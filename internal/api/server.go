@@ -6,6 +6,7 @@ package api
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,9 @@ import (
 
 	"github.com/andrefigueira/traffic-control/internal/tower"
 )
+
+//go:embed scope.html
+var scopeHTML []byte
 
 // Server wraps a tower with HTTP handlers.
 type Server struct {
@@ -26,6 +30,8 @@ func New(tw *tower.Tower) *Server { return &Server{tw: tw} }
 // Handler builds the router.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /", s.scope)
+	mux.HandleFunc("GET /scope", s.scope)
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("POST /sessions", s.register)
 	mux.HandleFunc("GET /sessions", s.whosFlying)
@@ -78,6 +84,11 @@ func (s *Server) Serve(ctx context.Context, addr string) error {
 }
 
 // --- handlers ---
+
+func (s *Server) scope(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(scopeHTML)
+}
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.tw.Stats())

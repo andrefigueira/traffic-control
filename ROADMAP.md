@@ -44,12 +44,12 @@ Make it trustworthy enough to leave running.
 - [ ] Durable storage so a tower restart keeps the board
 - [ ] Close the Bash edit bypass, or scope it out explicitly
 
-## Phase 4: The scope
+## Phase 4: The scope (in progress)
 
 Make the coordination visible to the human in the loop.
 
-- [ ] TUI or small web dashboard (the scope): live presence, who holds what clearance, the rolling board
-- [ ] Notifications for conflict alerts and announcements
+- [x] Web dashboard (the scope): live presence, who holds what clearance, the rolling board, and the event frequency, served by the tower and updating over SSE
+- [ ] Notifications for conflict alerts and announcements (OS-level, beyond the in-page frequency)
 
 ## Phase 5: Beyond one machine (maybe)
 

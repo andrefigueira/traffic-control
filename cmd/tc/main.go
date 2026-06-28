@@ -18,6 +18,7 @@ Usage: tc <command> [flags]
 Daemon:
   serve            Run the tower (the coordination daemon)
   status           Show tower health and who is currently flying
+  scope            Open the live dashboard (the scope) in your browser
 
 Coordinate (talk to a running tower):
   flightplan MSG   Post a flight plan to the board (what you are about to do)
@@ -57,6 +58,8 @@ func main() {
 		err = cmdServe(args)
 	case "status":
 		err = cmdStatus(args)
+	case "scope":
+		err = cmdScope(args)
 	case "flightplan":
 		err = cmdBoardPost(args, "flightplan")
 	case "done":

@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Scope · Traffic Control</title>
+<style>
+  :root {
+    --bg: #04140e;
+    --panel: #07211733;
+    --line: #0c3a2a;
+    --green: #41ffb0;
+    --dim: #5f9b86;
+    --amber: #ffd166;
+    --red: #ff6b6b;
+    --text: #c9f5e4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: radial-gradient(circle at 50% -10%, #0a2a1f 0%, var(--bg) 60%);
+    color: var(--text);
+    font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    min-height: 100vh;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 16px;
+    padding: 16px 24px; border-bottom: 1px solid var(--line);
+  }
+  header h1 { margin: 0; font-size: 18px; letter-spacing: 2px; color: var(--green); font-weight: 600; }
+  header .sub { color: var(--dim); font-size: 12px; letter-spacing: 1px; }
+  header .status { margin-left: auto; font-size: 12px; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  .live .dot { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 1.6s infinite; }
+  .down .dot { background: var(--red); }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+  main { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px 24px; }
+  @media (max-width: 820px) { main { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .panel h2 {
+    margin: 0; padding: 10px 14px; font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase;
+    color: var(--dim); border-bottom: 1px solid var(--line); display: flex; justify-content: space-between;
+  }
+  .panel .count { color: var(--green); }
+  ul { list-style: none; margin: 0; padding: 6px 0; max-height: 320px; overflow-y: auto; }
+  li { padding: 7px 14px; display: flex; gap: 10px; align-items: baseline; border-bottom: 1px solid #0c3a2a22; }
+  li:last-child { border-bottom: 0; }
+  .who { color: var(--green); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta { color: var(--dim); font-size: 12px; margin-left: auto; white-space: nowrap; }
+  .tag { font-size: 11px; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--line); color: var(--dim); }
+  .tag.exclusive { color: var(--amber); border-color: #6b5a1f; }
+  .tag.flightplan { color: var(--green); border-color: var(--line); }
+  .tag.done { color: var(--dim); }
+  .path { color: var(--text); word-break: break-all; }
+  .msg { color: var(--text); }
+  .empty { padding: 14px; color: var(--dim); font-style: italic; }
+  .freq li { font-size: 13px; }
+  .ev-type { color: var(--dim); min-width: 150px; }
+  .ev-type.conflict\.alert { color: var(--red); }
+  .ev-type.clearance\.granted { color: var(--green); }
+  .ev-type.presence\.join { color: var(--green); }
+  .ev-type.presence\.leave, .ev-type.clearance\.handoff, .ev-type.clearance\.expired { color: var(--amber); }
+  .ts { color: var(--dim); font-size: 11px; }
+  footer { padding: 8px 24px 24px; color: var(--dim); font-size: 11px; letter-spacing: 1px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>THE SCOPE</h1>
+  <span class="sub">traffic control · who is in the air</span>
+  <span class="status down" id="status"><span class="dot"></span><span id="status-text">connecting</span></span>
+</header>
+<main>
+  <section class="panel">
+    <h2>In the air <span class="count" id="c-sessions">0</span></h2>
+    <ul id="sessions"></ul>
+  </section>
+  <section class="panel">
+    <h2>Clearances held <span class="count" id="c-clearances">0</span></h2>
+    <ul id="clearances"></ul>
+  </section>
+  <section class="panel">
+    <h2>The board <span class="count" id="c-board">0</span></h2>
+    <ul id="board"></ul>
+  </section>
+  <section class="panel">
+    <h2>The frequency</h2>
+    <ul id="freq" class="freq"></ul>
+  </section>
+</main>
+<footer>updates live over server-sent events · <span id="addr"></span></footer>
+
+<script>
+const EVENT_TYPES = [
+  "presence.join", "presence.leave",
+  "clearance.granted", "clearance.handoff", "clearance.expired",
+  "conflict.alert", "board.posted",
+];
+const $ = (id) => document.getElementById(id);
+
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"]/g, c => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]
+  ));
+}
+function ago(iso) {
+  if (!iso) return "";
+  const d = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (d < 60) return Math.max(0, Math.round(d)) + "s";
+  if (d < 3600) return Math.round(d / 60) + "m";
+  return Math.round(d / 3600) + "h";
+}
+function clock(iso) {
+  const d = iso ? new Date(iso) : new Date();
+  return d.toTimeString().slice(0, 8);
+}
+
+function renderSessions(rows) {
+  $("c-sessions").textContent = rows.length;
+  $("sessions").innerHTML = rows.length ? rows.map(s => `
+    <li><span class="who">${esc(s.callsign)}</span>
+        <span class="meta">${esc(s.project || "-")} · ${ago(s.last_seen)} ago</span></li>`).join("")
+    : `<li class="empty">nobody is flying</li>`;
+}
+function renderClearances(rows) {
+  $("c-clearances").textContent = rows.length;
+  $("clearances").innerHTML = rows.length ? rows.map(c => `
+    <li><span class="tag ${esc(c.mode)}">${esc(c.mode)}</span>
+        <span class="path">${esc(c.path)}</span>
+        <span class="meta">${esc(c.holder)}</span></li>`).join("")
+    : `<li class="empty">no paths held</li>`;
+}
+function renderBoard(rows) {
+  $("c-board").textContent = rows.length;
+  const recent = rows.slice().reverse();
+  $("board").innerHTML = recent.length ? recent.map(e => `
+    <li><span class="tag ${esc(e.kind)}">${esc(e.kind)}</span>
+        <span class="msg">${esc(e.message)}</span>
+        <span class="meta">${esc(e.callsign)} · ${clock(e.posted_at)}</span></li>`).join("")
+    : `<li class="empty">the board is empty</li>`;
+}
+
+const freq = [];
+function pushFreq(type, data) {
+  const who = data && (data.callsign || data.holder || data.requester || data.held_by) || "";
+  freq.unshift({ type, who, t: clock() });
+  if (freq.length > 40) freq.pop();
+  $("freq").innerHTML = freq.map(f => `
+    <li><span class="ts">${f.t}</span>
+        <span class="ev-type ${f.type}">${esc(f.type)}</span>
+        <span class="who">${esc(f.who)}</span></li>`).join("");
+}
+
+async function refresh() {
+  try {
+    const [sessions, clearances, board] = await Promise.all([
+      fetch("/sessions").then(r => r.json()),
+      fetch("/clearances").then(r => r.json()),
+      fetch("/board?limit=40").then(r => r.json()),
+    ]);
+    renderSessions(sessions || []);
+    renderClearances(clearances || []);
+    renderBoard(board || []);
+  } catch (e) { /* tower may be momentarily unreachable */ }
+}
+
+function setStatus(live) {
+  const el = $("status");
+  el.className = "status " + (live ? "live" : "down");
+  $("status-text").textContent = live ? "live" : "reconnecting";
+}
+
+let debounce;
+function scheduleRefresh() {
+  clearTimeout(debounce);
+  debounce = setTimeout(refresh, 120);
+}
+
+function connect() {
+  const es = new EventSource("/events");
+  es.onopen = () => setStatus(true);
+  es.onerror = () => setStatus(false);
+  for (const type of EVENT_TYPES) {
+    es.addEventListener(type, (ev) => {
+      let data = {};
+      try { data = JSON.parse(ev.data).payload || {}; } catch (e) {}
+      pushFreq(type, data);
+      scheduleRefresh();
+    });
+  }
+}
+
+$("addr").textContent = location.host;
+refresh();
+connect();
+setInterval(refresh, 5000); // safety net if the stream stalls
+</script>
+</body>
+</html>
