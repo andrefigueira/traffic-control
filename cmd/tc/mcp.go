@@ -55,6 +55,25 @@ func mcpCallsign() string {
 	return resolveCallsign("")
 }
 
+// mcpCwd is the project root the MCP server runs in. Claude launches the server
+// in the project directory, so this anchors paths the same way the hooks do,
+// which keeps an MCP-acquired hold and a hook-acquired hold on the same file
+// comparable instead of one absolute and one relative.
+func mcpCwd() string {
+	if d, err := os.Getwd(); err == nil {
+		return d
+	}
+	return ""
+}
+
+// mcpPath canonicalizes a path argument the same way the hooks do.
+func mcpPath(p string) string {
+	if p == "" {
+		return ""
+	}
+	return relativize(p, mcpCwd())
+}
+
 type rpcRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id"`
@@ -213,7 +232,11 @@ func dispatchTool(ctx context.Context, c *client.Client, callsign, name string, 
 		if a.Message == "" {
 			return "", fmt.Errorf("message is required")
 		}
-		e, err := c.PostBoard(ctx, callsign, protocol.KindFlightPlan, a.Message, a.Paths)
+		paths := make([]string, 0, len(a.Paths))
+		for _, p := range a.Paths {
+			paths = append(paths, mcpPath(p))
+		}
+		e, err := c.PostBoard(ctx, callsign, protocol.KindFlightPlan, a.Message, paths)
 		if err != nil {
 			return "", err
 		}
@@ -229,7 +252,13 @@ func dispatchTool(ctx context.Context, c *client.Client, callsign, name string, 
 		if a.Path == "" {
 			return "", fmt.Errorf("path is required")
 		}
-		res, err := c.RequestClearance(ctx, callsign, a.Path, a.Mode, a.Note, 0)
+		mode := a.Mode
+		// Operator policy floor: when TC_ENFORCE=1 the model cannot place a hold
+		// weaker than exclusive, so it cannot opt out of hard coordination.
+		if os.Getenv("TC_ENFORCE") == "1" {
+			mode = protocol.ModeExclusive
+		}
+		res, err := c.RequestClearance(ctx, callsign, mcpPath(a.Path), mode, a.Note, 0)
 		if err != nil {
 			return "", err
 		}
@@ -243,7 +272,7 @@ func dispatchTool(ctx context.Context, c *client.Client, callsign, name string, 
 			Path string `json:"path"`
 		}
 		_ = json.Unmarshal(args, &a)
-		n, err := c.Handoff(ctx, callsign, a.Path)
+		n, err := c.Handoff(ctx, callsign, mcpPath(a.Path))
 		if err != nil {
 			return "", err
 		}
@@ -257,7 +286,8 @@ func dispatchTool(ctx context.Context, c *client.Client, callsign, name string, 
 		if a.Path == "" {
 			return "", fmt.Errorf("path is required")
 		}
-		res, err := c.Check(ctx, a.Path)
+		p := mcpPath(a.Path)
+		res, err := c.Check(ctx, p)
 		if err != nil {
 			return "", err
 		}

@@ -37,10 +37,12 @@ Exit criteria: two Claude Code agents in the same tree, the second is held in a 
 
 Make it trustworthy enough to leave running.
 
-- [x] Glob and directory clearances, not just single files
-- [x] Conflict policy: advisory-by-default with opt-in hard blocking (`TC_ENFORCE=1`)
-- [x] Graceful degradation when the tower is down (agents proceed, warn, do not break)
-- [~] Leases: clearances auto-expire and refresh on heartbeat. Heartbeat timing for long-reasoning agents is still open.
+- [x] Glob and directory clearances, including recursive `**` subtree claims
+- [x] Conflict policy: advisory-by-default with opt-in hard blocking (`TC_ENFORCE=1`), enforced as a floor on MCP too
+- [x] Graceful degradation when the tower is down, and it now degrades **loud**: stderr notices, auto-start from `PreToolUse`, a dropped-event counter in health and `tc status`
+- [x] Leases refresh on a `PostToolUse` heartbeat, so an active agent's holds do not expire mid-turn. The lease is now documented as a crash backstop, since `Stop` hands holds off every turn by design.
+- [x] Flight-plan paths drive advisory warnings that persist across turns, and an advisory overlap emits its own event
+- [x] Path canonicalization: absolute vs relative, symlinks, and case-insensitive filesystems no longer miss the same physical file
 - [ ] Durable storage so a tower restart keeps the board
 - [ ] Close the Bash edit bypass, or scope it out explicitly
 
@@ -59,9 +61,13 @@ Only if demand is real.
 - [ ] Multi-machine coordination over a shared broker
 - [ ] Editor integrations beyond Claude Code
 
+## Next: semantic coupling
+
+The biggest remaining gap is the one clearance cannot see: one agent changing a function signature while another edits a caller in a different file. A lightweight exported-symbol index (ctags or tree-sitter style), fed into the board as an advisory "an agent recently touched a file that defines a symbol you reference" hint, is the most defensible next step, because no other shared-tree coordinator attempts it. It ships advisory-only and is measured for false-positive rate before it earns a hard mode.
+
 ## Open questions
 
 - How hard should the default enforcement be before it annoys more than it helps?
 - Is the board valuable enough on its own that worktree users would run it just for presence?
 - What is the right granularity for clearance: file, symbol, directory, or intent?
-- The validation experiment: run two real agents in one tree on a real task and log how often they collide on the *same path* versus break each other *across paths*. If cross-path breakage dominates, the awareness board matters far more than path clearance, and the product should lean further that way.
+- The validation experiment: run two real agents in one tree on a real task and log how often they collide on the *same path* versus break each other *across paths*. If cross-path breakage dominates, the awareness board and the coming symbol index matter far more than path clearance, and the product should lean further that way.

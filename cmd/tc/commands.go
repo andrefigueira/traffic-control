@@ -3,7 +3,9 @@ package main
 import (
 	"flag"
 	"fmt"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/andrefigueira/traffic-control/internal/protocol"
 )
@@ -25,6 +27,13 @@ func cmdStatus(args []string) error {
 	fmt.Printf("tower is up. %d flying, %d clearances held.\n", len(sessions), len(clrs))
 	for _, s := range sessions {
 		fmt.Printf("  %-28s seen %s ago\n", s.Callsign, ago(s.LastSeen))
+	}
+	// A climbing dropped-events count means a watcher or the scope is not
+	// keeping up and may be missing conflict alerts. Surface it loudly.
+	if h, err := c.Health(ctx); err == nil {
+		if d, ok := h["dropped_events"].(float64); ok && d > 0 {
+			fmt.Printf("  warning: %d frequency event(s) dropped to slow subscribers\n", int(d))
+		}
 	}
 	return nil
 }
@@ -162,13 +171,43 @@ func cmdWatch(args []string) error {
 	c := mustCli()
 	ctx, cancel := backgroundCtx()
 	defer cancel()
-	events, err := c.Events(ctx)
-	if err != nil {
-		return err
-	}
 	fmt.Println("tuned to the frequency. ctrl-c to leave.")
-	for ev := range events {
-		fmt.Printf("%s  %-22s %v\n", ev.At.Format("15:04:05"), ev.Type, summarize(ev.Payload))
+
+	// Reconnect with backoff if the stream drops or the tower restarts, so a
+	// long-lived watcher survives a tower bounce the way the browser scope does,
+	// rather than exiting silently the first time the connection blips. Always
+	// sleep before reconnecting, so a tower that accepts the connection then
+	// instantly drops the stream cannot spin this loop hot; reset the backoff
+	// only after a healthy stream that actually delivered an event.
+	const minBackoff = 500 * time.Millisecond
+	const maxBackoff = 10 * time.Second
+	backoff := minBackoff
+	for ctx.Err() == nil {
+		events, err := c.Events(ctx)
+		gotEvent := false
+		if err == nil {
+			for ev := range events {
+				gotEvent = true
+				fmt.Printf("%s  %-22s %v\n", ev.At.Format("15:04:05"), ev.Type, summarize(ev.Payload))
+			}
+		}
+		if ctx.Err() != nil {
+			return nil
+		}
+		if gotEvent {
+			backoff = minBackoff // the stream was healthy; reset
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "frequency unreachable, retrying in %s...\n", backoff)
+		} else {
+			fmt.Fprintf(os.Stderr, "frequency dropped, reconnecting in %s...\n", backoff)
+		}
+		if !sleepCtx(ctx, backoff) {
+			return nil
+		}
+		if !gotEvent {
+			backoff = min(backoff*2, maxBackoff) // still flapping; grow the wait
+		}
 	}
 	return nil
 }
@@ -179,7 +218,10 @@ func summarize(payload interface{}) string {
 	if !ok {
 		return ""
 	}
-	for _, k := range []string{"callsign", "holder", "path", "message"} {
+	// requester/held_by cover conflict.alert and clearance.advisory payloads,
+	// which carry no callsign/holder key, so the line names an agent rather than
+	// falling through to the path.
+	for _, k := range []string{"callsign", "holder", "requester", "held_by", "path", "message"} {
 		if v, ok := m[k]; ok {
 			return fmt.Sprintf("%v", v)
 		}

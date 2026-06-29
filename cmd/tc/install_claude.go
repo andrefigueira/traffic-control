@@ -9,7 +9,7 @@ import (
 )
 
 // cmdInstallClaude wires Traffic Control into a project's Claude Code config:
-// the three hooks into .claude/settings.json and the MCP server into .mcp.json.
+// the four hooks into .claude/settings.json and the MCP server into .mcp.json.
 // It merges into existing config rather than clobbering it, and is idempotent.
 func cmdInstallClaude(args []string) error {
 	fs := flag.NewFlagSet("install-claude", flag.ExitOnError)
@@ -33,6 +33,12 @@ func cmdInstallClaude(args []string) error {
 				"hooks":   []interface{}{cmdHookEntry(bin, "pre-tool-use")},
 			},
 		},
+		"PostToolUse": []interface{}{
+			map[string]interface{}{
+				"matcher": "Edit|Write|MultiEdit|NotebookEdit",
+				"hooks":   []interface{}{cmdHookEntry(bin, "post-tool-use")},
+			},
+		},
 		"Stop": []interface{}{
 			map[string]interface{}{"hooks": []interface{}{cmdHookEntry(bin, "stop")}},
 		},
@@ -53,14 +59,14 @@ func cmdInstallClaude(args []string) error {
 	if err := mergeSettings(settingsPath, hooks); err != nil {
 		return err
 	}
-	mcpPath := filepath.Join(*project, ".mcp.json")
-	if err := mergeMCP(mcpPath, mcp); err != nil {
+	mcpConfigPath := filepath.Join(*project, ".mcp.json")
+	if err := mergeMCP(mcpConfigPath, mcp); err != nil {
 		return err
 	}
 	fmt.Printf("wired Traffic Control into %s\n", *project)
 	fmt.Printf("  hooks: %s\n", settingsPath)
-	fmt.Printf("  mcp:   %s\n", mcpPath)
-	fmt.Println("start the tower with `tc serve` and run Claude Code in this project.")
+	fmt.Printf("  mcp:   %s\n", mcpConfigPath)
+	fmt.Println("just run Claude Code in this project; the first agent auto-starts the tower (or run `tc serve` yourself).")
 	return nil
 }
 

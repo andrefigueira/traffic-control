@@ -2,6 +2,7 @@ package tower
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -147,6 +148,61 @@ func TestHeartbeatExtendsLease(t *testing.T) {
 	after := tw.Clearances()[0].ExpiresAt
 	if !after.After(before) {
 		t.Fatalf("heartbeat should extend the lease: before %v after %v", before, after)
+	}
+}
+
+func TestFlightPlanWarnsAdvisory(t *testing.T) {
+	tw := New()
+	tw.Register("alpha", "p", 0)
+	tw.Register("bravo", "p", 0)
+	// Alpha files a flight plan over a directory but holds no clearance.
+	tw.PostBoard("alpha", protocol.KindFlightPlan, "reworking auth", []string{"auth/"})
+
+	// Bravo reaches for a file under that plan: cleared, but warned.
+	r := tw.RequestClearance("bravo", "auth/login.go", protocol.ModeAdvisory, "", 0)
+	if !r.Granted {
+		t.Fatalf("a flight plan must never block, only warn; got %+v", r)
+	}
+	if !r.Advisory {
+		t.Fatalf("a flight plan over the path should flag the clearance advisory; got %+v", r)
+	}
+	if !strings.Contains(r.Message, "flight plan") {
+		t.Fatalf("advisory message should mention the flight plan; got %q", r.Message)
+	}
+}
+
+func TestFlightPlanFromDepartedAgentIsIgnored(t *testing.T) {
+	tw := New()
+	tw.Register("alpha", "p", 0)
+	tw.Register("bravo", "p", 0)
+	tw.PostBoard("alpha", protocol.KindFlightPlan, "reworking auth", []string{"auth/"})
+	tw.Deregister("alpha") // alpha leaves; its plan must stop warning
+
+	r := tw.RequestClearance("bravo", "auth/login.go", protocol.ModeAdvisory, "", 0)
+	if r.Advisory {
+		t.Fatalf("a plan from a departed agent should not warn; got %+v", r)
+	}
+}
+
+func TestAdvisoryOverlapPublishesEvent(t *testing.T) {
+	tw := New()
+	id, ch := tw.Broker().Subscribe()
+	defer tw.Broker().Unsubscribe(id)
+	tw.Register("alpha", "p", 0)
+	tw.Register("bravo", "p", 0)
+	tw.RequestClearance("alpha", "shared.go", protocol.ModeAdvisory, "", 0)
+	tw.RequestClearance("bravo", "shared.go", protocol.ModeAdvisory, "", 0)
+
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case ev := <-ch:
+			if ev.Type == protocol.EventAdvisoryOverlap {
+				return // found it
+			}
+		case <-deadline:
+			t.Fatal("expected a clearance.advisory event for the advisory overlap")
+		}
 	}
 }
 

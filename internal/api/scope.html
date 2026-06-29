@@ -29,7 +29,13 @@
   }
   header h1 { margin: 0; font-size: 18px; letter-spacing: 2px; color: var(--green); font-weight: 600; }
   header .sub { color: var(--dim); font-size: 12px; letter-spacing: 1px; }
-  header .status { margin-left: auto; font-size: 12px; }
+  header .notify {
+    margin-left: auto; background: transparent; border: 1px solid var(--line);
+    color: var(--dim); font: inherit; font-size: 12px; padding: 3px 10px;
+    border-radius: 12px; cursor: pointer;
+  }
+  header .notify.on { color: var(--green); border-color: var(--green); }
+  header .status { margin-left: 14px; font-size: 12px; }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
   .live .dot { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 1.6s infinite; }
   .down .dot { background: var(--red); }
@@ -57,6 +63,7 @@
   .freq li { font-size: 13px; }
   .ev-type { color: var(--dim); min-width: 150px; }
   .ev-type.conflict\.alert { color: var(--red); }
+  .ev-type.clearance\.advisory { color: var(--amber); }
   .ev-type.clearance\.granted { color: var(--green); }
   .ev-type.presence\.join { color: var(--green); }
   .ev-type.presence\.leave, .ev-type.clearance\.handoff, .ev-type.clearance\.expired { color: var(--amber); }
@@ -68,6 +75,7 @@
 <header>
   <h1>THE SCOPE</h1>
   <span class="sub">traffic control · who is in the air</span>
+  <button id="notify" class="notify" title="Desktop alerts when agents collide">alerts off</button>
   <span class="status down" id="status"><span class="dot"></span><span id="status-text">connecting</span></span>
 </header>
 <main>
@@ -94,7 +102,7 @@
 const EVENT_TYPES = [
   "presence.join", "presence.leave",
   "clearance.granted", "clearance.handoff", "clearance.expired",
-  "conflict.alert", "board.posted",
+  "conflict.alert", "clearance.advisory", "board.posted",
 ];
 const $ = (id) => document.getElementById(id);
 
@@ -185,9 +193,31 @@ function connect() {
       let data = {};
       try { data = JSON.parse(ev.data).payload || {}; } catch (e) {}
       pushFreq(type, data);
+      maybeNotify(type, data);
       scheduleRefresh();
     });
   }
+}
+
+// Desktop notifications, fired when agents collide.
+let notifyOn = false;
+const notifyBtn = $("notify");
+notifyBtn.addEventListener("click", async () => {
+  if (!("Notification" in window)) { notifyBtn.textContent = "unsupported"; return; }
+  if (Notification.permission !== "granted") {
+    const p = await Notification.requestPermission();
+    if (p !== "granted") { notifyBtn.textContent = "blocked"; return; }
+  }
+  notifyOn = !notifyOn;
+  notifyBtn.textContent = notifyOn ? "alerts on" : "alerts off";
+  notifyBtn.classList.toggle("on", notifyOn);
+});
+function maybeNotify(type, data) {
+  if (!notifyOn || type !== "conflict.alert") return;
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  const who = (data && (data.requester || data.callsign)) || "an agent";
+  const path = (data && (data.path || data.held_path)) || "a file";
+  try { new Notification("Traffic Control · conflict", { body: who + " reached for " + path }); } catch (e) {}
 }
 
 $("addr").textContent = location.host;

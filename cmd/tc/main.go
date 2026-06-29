@@ -17,6 +17,7 @@ Usage: tc <command> [flags]
 
 Daemon:
   serve            Run the tower (the coordination daemon)
+  stop             Stop an auto-started tower
   status           Show tower health and who is currently flying
   scope            Open the live dashboard (the scope) in your browser
 
@@ -31,7 +32,7 @@ Coordinate (talk to a running tower):
   watch            Stream the frequency (live events)
 
 Claude Code integration:
-  hook EVENT       Hook entrypoint (session-start | pre-tool-use | stop)
+  hook EVENT       Hook entrypoint (session-start | pre-tool-use | post-tool-use | stop)
   mcp              Run the MCP server over stdio
   install-claude   Print or apply the Claude Code wiring (see --help)
 
@@ -42,6 +43,8 @@ Environment:
   TC_ADDR          Tower address (default 127.0.0.1:7700)
   TC_CALLSIGN      Your identity on the board (default derived from user/host)
   TC_ENFORCE       If "1", pre-tool-use blocks on any held path, not just exclusive
+  TC_NO_AUTOSTART  If "1", the SessionStart hook will not auto-start the tower
+  TC_STATE_DIR     Where the pidfile and auto-start log live (default ~/.traffic-control)
 `
 
 func main() {
@@ -56,6 +59,8 @@ func main() {
 	switch cmd {
 	case "serve":
 		err = cmdServe(args)
+	case "stop":
+		err = cmdStop(args)
 	case "status":
 		err = cmdStatus(args)
 	case "scope":

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 
@@ -47,12 +48,25 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
-// Serve starts the sweeper and blocks serving HTTP until ctx is cancelled.
+// Serve binds addr and serves until ctx is cancelled. Binding here means a
+// failure to claim the port (a tower is already running) is reported before any
+// side effects, like the pidfile, are taken.
 func (s *Server) Serve(ctx context.Context, addr string) error {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	return s.ServeListener(ctx, ln)
+}
+
+// ServeListener starts the sweeper and blocks serving HTTP on an already-bound
+// listener until ctx is cancelled. Taking the listener separately lets the
+// caller bind the port first and only then claim the pidfile, so a second tower
+// that loses the race for the port never clobbers the live tower's pidfile.
+func (s *Server) ServeListener(ctx context.Context, ln net.Listener) error {
 	// ReadHeaderTimeout guards against a slow-header client. Read and Write
 	// timeouts are intentionally left unset so the SSE stream is not killed.
 	srv := &http.Server{
-		Addr:              addr,
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
@@ -77,7 +91,7 @@ func (s *Server) Serve(ctx context.Context, addr string) error {
 		_ = srv.Shutdown(shutCtx)
 	}()
 
-	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil

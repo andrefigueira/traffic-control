@@ -68,6 +68,18 @@ func backgroundCtx() (context.Context, context.CancelFunc) {
 	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 }
 
+// sleepCtx waits for d or until ctx is cancelled, returning false if cancelled.
+func sleepCtx(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
+}
+
 // splitCSV turns "a,b , c" into ["a","b","c"], dropping blanks.
 func splitCSV(s string) []string {
 	if strings.TrimSpace(s) == "" {

@@ -4,6 +4,30 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ## [Unreleased]
 
+### Hardening pass (review + research follow-up)
+
+A round of fixes and features driven by a deep code review and a literature survey (see `RESEARCH-AND-GAPS.md`).
+
+Added:
+
+- **Recursive `**` globs in clearances.** A claim on `internal/**` now covers every file in the subtree, matching across path separators. Previously `**` matched nothing nested, so a subtree claim silently locked nothing and an exclusive hold could no-op.
+- **Flight plans now drive coordination.** Paths on a flight plan are checked against later clearance requests, so filing a plan actually warns other agents off those paths. Plans persist after a turn ends and stop warning once their author leaves, so they are the awareness signal that outlasts a turn-scoped clearance.
+- **`PostToolUse` heartbeat hook.** An actively working agent refreshes its held paths on every edit, so an earlier hold does not expire at the lease boundary mid-turn. `tc install-claude` now wires four hooks.
+- **Fail-loud coordination.** `PreToolUse` auto-starts the tower instead of only pinging it, and every degraded path now writes a one-line notice to stderr, so a silent loss of coordination is visible. The broker counts dropped events, surfaced in `/healthz` and called out by `tc status`. `tc watch` reconnects with backoff instead of exiting on the first blip.
+- **Advisory overlaps emit a `clearance.advisory` event,** so the scope and `tc watch` show two agents on one file, not just hard conflicts.
+- **`TC_ENFORCE=1` is a real floor on MCP.** A model cannot place a weaker-than-exclusive hold through `request_clearance` under that policy.
+
+Fixed:
+
+- **Absolute and relative paths to the same file now collide.** Paths are anchored to the session cwd and symlink-resolved best-effort, on the hook and MCP entry points alike, so one agent passing an absolute path and another a relative one are recognized as the same file.
+- **Case-insensitive filesystems.** Path comparison folds case on macOS and Windows, so `src/App.go` and `src/app.go` are the same file there. Stored paths keep their original case for display.
+- **Backslashes are converted to separators only on Windows,** so a legitimate Unix filename containing a backslash is no longer corrupted.
+- **Pidfile race on auto-start.** The tower binds its port before claiming the pidfile, so a second tower that loses the race for the port can no longer overwrite the live tower's pidfile.
+
+Changed:
+
+- The lease is documented as a crash backstop, not a task-protection guarantee. The `Stop` hook hands off holds every turn by design, and the new heartbeat keeps an active agent's other holds alive.
+
 ### Added
 
 - **MVP implementation in Go (zero dependencies).** The `tc` binary is the tower daemon, the CLI, the Claude hook handler, and the MCP server in one.

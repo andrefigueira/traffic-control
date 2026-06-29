@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -18,12 +19,25 @@ func cmdServe(args []string) error {
 	addr := fs.String("addr", client.Addr(), "address to listen on (host:port)")
 	_ = fs.Parse(args)
 
+	// Bind before any side effects. If the port is taken, a tower is already
+	// running, so we fail cleanly without touching the pidfile.
+	ln, err := net.Listen("tcp", *addr)
+	if err != nil {
+		return fmt.Errorf("could not bind %s; a tower may already be running there (try `tc status`): %w", *addr, err)
+	}
+
 	tw := tower.New()
 	srv := api.New(tw)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	fmt.Fprintf(os.Stderr, "tower up on %s  (the scope: http://%s/events)\n", *addr, *addr)
-	return srv.Serve(ctx, *addr)
+	// Claim the pidfile only after the bind succeeds, so a tower that lost the
+	// race for the port cannot overwrite the live tower's pidfile.
+	if err := writePidFile(); err == nil {
+		defer removePidFile()
+	}
+
+	fmt.Fprintf(os.Stderr, "tower up on %s  (the scope: http://%s/)\n", *addr, *addr)
+	return srv.ServeListener(ctx, ln)
 }

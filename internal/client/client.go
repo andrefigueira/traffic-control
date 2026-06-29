@@ -86,6 +86,14 @@ func (c *Client) Ping(ctx context.Context) error {
 	return c.do(ctx, http.MethodGet, "/healthz", nil, &stats)
 }
 
+// Health returns the tower's stats snapshot (sessions, clearances, subscribers,
+// dropped events). It is the same payload as /healthz.
+func (c *Client) Health(ctx context.Context) (map[string]interface{}, error) {
+	var stats map[string]interface{}
+	err := c.do(ctx, http.MethodGet, "/healthz", nil, &stats)
+	return stats, err
+}
+
 // Register checks an agent in.
 func (c *Client) Register(ctx context.Context, callsign, project string, pid int) (*protocol.Session, error) {
 	var out protocol.Session

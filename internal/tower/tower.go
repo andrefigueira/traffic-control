@@ -7,6 +7,7 @@ package tower
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,10 +15,15 @@ import (
 	"github.com/andrefigueira/traffic-control/internal/protocol"
 )
 
-// Defaults. Leases are deliberately generous: an autonomous agent may sit on a
-// path for many minutes between tool calls while it reasons, and an expiry that
-// fires mid-edit would reintroduce the exact overwrite we exist to prevent. A
-// long lease plus refresh-on-interaction is the safer default; tune with care.
+// Defaults. The lease is a crash backstop, not a task-protection guarantee. The
+// Claude Stop hook hands off an agent's clearances at the end of every turn, so
+// in normal operation a hold lives for one turn and is re-requested on the next
+// edit. The lease exists to clean up after an agent that dies or wedges without
+// ever firing Stop: its holds expire instead of lingering forever. A heartbeat
+// (PostToolUse) refreshes the holds of an agent that is still actively working,
+// so its other held paths do not expire at the lease boundary mid-task. It is
+// deliberately generous because an autonomous agent may sit between tool calls
+// for many minutes while it reasons.
 const (
 	DefaultLease       = 30 * time.Minute
 	DefaultSessionIdle = 2 * time.Hour
@@ -209,8 +215,44 @@ func (t *Tower) RequestClearance(callsign, reqPath, mode, note string, ttl time.
 		res.Advisory = true
 		res.Conflict = advisoryOverlap
 		res.Message = fmt.Sprintf("cleared, but %s also holds %s (advisory). Worth a look at the board.", advisoryOverlap.Holder, advisoryOverlap.Path)
+		t.publish(protocol.EventAdvisoryOverlap, map[string]interface{}{
+			"requester": callsign, "path": reqPath, "held_by": advisoryOverlap.Holder, "held_path": advisoryOverlap.Path,
+		})
+	} else if fp := t.flightPlanOverlapLocked(callsign, reqPath); fp != nil {
+		// No live clearance overlaps, but another agent that is still flying
+		// filed a flight plan over this path. Flight plans live on the board,
+		// which survives a Stop handoff, so this is the awareness signal that
+		// outlasts a turn-scoped clearance.
+		res.Advisory = true
+		res.Message = fmt.Sprintf("cleared, but %s filed a flight plan over %s. Check the board before you change their ground.", fp.Callsign, strings.Join(fp.Paths, ", "))
+		t.publish(protocol.EventAdvisoryOverlap, map[string]interface{}{
+			"requester": callsign, "path": reqPath, "held_by": fp.Callsign, "flightplan": fp.Message,
+		})
 	}
 	return res
+}
+
+// flightPlanOverlapLocked returns the most recent flight plan filed by another
+// agent that is still flying and whose declared paths overlap reqPath. Plans
+// from agents who have left are ignored, so a stale plan does not warn forever.
+// Called with t.mu held.
+func (t *Tower) flightPlanOverlapLocked(callsign, reqPath string) *protocol.BoardEntry {
+	for i := len(t.board) - 1; i >= 0; i-- { // newest first
+		e := t.board[i]
+		if e.Kind != protocol.KindFlightPlan || e.Callsign == callsign {
+			continue
+		}
+		if _, live := t.sessions[e.Callsign]; !live {
+			continue
+		}
+		for _, p := range e.Paths {
+			if protocol.PathsOverlap(p, reqPath) {
+				ec := e
+				return &ec
+			}
+		}
+	}
+	return nil
 }
 
 // Handoff releases the caller's clearances overlapping the given path. An empty
@@ -343,11 +385,12 @@ func (t *Tower) expireLocked() {
 
 // Stats is a small snapshot for the health endpoint.
 type Stats struct {
-	Sessions    int       `json:"sessions"`
-	Clearances  int       `json:"clearances"`
-	BoardSize   int       `json:"board_size"`
-	Subscribers int       `json:"subscribers"`
-	StartedAt   time.Time `json:"started_at"`
+	Sessions      int       `json:"sessions"`
+	Clearances    int       `json:"clearances"`
+	BoardSize     int       `json:"board_size"`
+	Subscribers   int       `json:"subscribers"`
+	DroppedEvents uint64    `json:"dropped_events"`
+	StartedAt     time.Time `json:"started_at"`
 }
 
 // Stats returns current counts.
@@ -355,10 +398,11 @@ func (t *Tower) Stats() Stats {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return Stats{
-		Sessions:    len(t.sessions),
-		Clearances:  len(t.clearances),
-		BoardSize:   len(t.board),
-		Subscribers: t.broker.Count(),
-		StartedAt:   t.startedAt,
+		Sessions:      len(t.sessions),
+		Clearances:    len(t.clearances),
+		BoardSize:     len(t.board),
+		Subscribers:   t.broker.Count(),
+		DroppedEvents: t.broker.Dropped(),
+		StartedAt:     t.startedAt,
 	}
 }
