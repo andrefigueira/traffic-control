@@ -7,6 +7,7 @@
 [![ci](https://github.com/andrefigueira/traffic-control/actions/workflows/ci.yml/badge.svg)](https://github.com/andrefigueira/traffic-control/actions/workflows/ci.yml)
 [![release](https://img.shields.io/github/v/release/andrefigueira/traffic-control?sort=semver&display_name=tag)](https://github.com/andrefigueira/traffic-control/releases)
 [![go](https://img.shields.io/github/go-mod/go-version/andrefigueira/traffic-control)](go.mod)
+[![license](https://img.shields.io/github/license/andrefigueira/traffic-control)](LICENSE)
 
 **Run a swarm of AI coding agents in one repo without them overwriting each other.**
 
@@ -45,7 +46,7 @@ tc install-claude   # wire this project's Claude Code hooks + MCP server
 
 Now run Claude Code in that project as usual. The first agent to start auto-starts the tower, so there is no separate daemon to babysit. That is the whole setup.
 
-`tc install-claude` merges four hooks into `.claude/settings.json` and the MCP server into `.mcp.json` without touching the rest of your config. Run `tc install-claude --print` to see exactly what it adds before it writes anything.
+`tc install-claude` merges four hooks into `.claude/settings.json` and the MCP server into `.mcp.json` without touching the rest of your config. Run `tc install-claude --print` to see exactly what it adds before it writes anything. Run `tc doctor` to confirm a project is wired and the tower is reachable, and `tc uninstall-claude` to cleanly remove the wiring later (it leaves the rest of your config alone).
 
 ## See it catch a collision
 
@@ -111,6 +112,8 @@ Or open `http://127.0.0.1:7700/` directly. It shows, live over the event stream:
 | `tc board` | Read the broadcast board |
 | `tc watch` | Stream the live frequency (reconnects on its own) |
 | `tc stop` | Stop an auto-started tower |
+| `tc doctor` | Check the setup: tower reachable, hooks and MCP wired |
+| `tc uninstall-claude` | Remove the Claude Code wiring `install-claude` added |
 
 ## What it catches, and what it does not
 
@@ -163,8 +166,8 @@ make check   # gofmt, go vet, and the full race-enabled test suite
 
 A few ways in:
 
-- **Found a bug or a sharp edge?** Open an [issue](https://github.com/andrefigueira/traffic-control/issues) with the steps to reproduce. The two known gaps (Bash edits bypassing hooks, in-memory state) are documented above, so anything beyond those is worth reporting.
-- **Picking up work?** The [roadmap](./ROADMAP.md) and [issues](https://github.com/andrefigueira/traffic-control/issues) list what is planned. The symbol index for semantic coupling and durable storage across restarts are the two big ones.
+- **Found a bug or a sharp edge?** Open an [issue](https://github.com/andrefigueira/traffic-control/issues) with the steps to reproduce. The honest edges are documented above, so anything beyond those is worth reporting.
+- **Picking up work?** The [roadmap](./ROADMAP.md) and [issues](https://github.com/andrefigueira/traffic-control/issues) list what is planned. Broadening symbol-coupling awareness beyond Go and supporting agent runtimes other than Claude Code are the two big open ones.
 - **Sending a PR?** Keep changes focused, match the surrounding style, and explain the why in the description. The architecture notes above and [RESEARCH-AND-GAPS.md](./RESEARCH-AND-GAPS.md) cover how the pieces fit together.
 
 The design leans on one rule worth keeping in mind: a hook must never break the agent. If the tower is down or anything goes sideways, the hook fails open and says so on stderr. Coordination is an enhancement, so it can degrade, and it can never become a gate that wedges a session.
@@ -176,3 +179,7 @@ The design leans on one rule worth keeping in mind: a hook must never break the 
 - **`agent-comms` and similar**: agents announce files and negotiate before starting, usually poll-based, no daemon, no live presence, no enforcement.
 
 Traffic Control's bet is that a persistent tower with live presence, a broadcast board, flight plans that survive a turn, and first-class Claude hook plus MCP integration with real enforcement is worth the small footprint for agents sharing one tree.
+
+## License
+
+[MIT](./LICENSE). Use it, fork it, ship it.

@@ -20,6 +20,7 @@ Daemon:
   stop             Stop an auto-started tower
   status           Show tower health and who is currently flying
   scope            Open the live dashboard (the scope) in your browser
+  doctor           Check the setup: tower reachable, hooks and MCP wired
 
 Coordinate (talk to a running tower):
   flightplan MSG   Post a flight plan to the board (what you are about to do)
@@ -35,6 +36,7 @@ Claude Code integration:
   hook EVENT       Hook entrypoint (session-start | pre-tool-use | post-tool-use | stop)
   mcp              Run the MCP server over stdio
   install-claude   Print or apply the Claude Code wiring (see --help)
+  uninstall-claude Remove the Claude Code wiring this added
 
 Other:
   version          Print the version
@@ -67,6 +69,8 @@ func main() {
 		err = cmdStatus(args)
 	case "scope":
 		err = cmdScope(args)
+	case "doctor":
+		err = cmdDoctor(args)
 	case "flightplan":
 		err = cmdBoardPost(args, "flightplan")
 	case "done":
@@ -89,6 +93,8 @@ func main() {
 		err = cmdMCP(args)
 	case "install-claude":
 		err = cmdInstallClaude(args)
+	case "uninstall-claude":
+		err = cmdUninstallClaude(args)
 	case "version", "--version", "-v":
 		fmt.Printf("tc %s\n", version)
 	case "help", "--help", "-h":
