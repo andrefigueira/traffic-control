@@ -79,6 +79,8 @@ Alpha claimed a whole subtree with a recursive glob, and Bravo was turned away f
 
 Enforcement is **advisory by default**: it warns the agent and the human and lets the edit through. Set `TC_ENFORCE=1` to make `PreToolUse` request an exclusive hold and hard-block any held path. Under that policy an agent cannot opt itself down to a weaker hold through MCP either.
 
+Set `TC_HOLD_TIMEOUT=N` to soften that block into a **holding pattern**: a blocked edit waits up to N seconds for the holder to hand off before it is denied, so a near-simultaneous reach for the same file often clears itself once the other agent's turn ends. The wait is capped, so two agents that block on each other both time out and deny rather than deadlocking. It is off by default (deny immediately).
+
 ## Flight plans that outlast a turn
 
 A clearance lives for one turn. The moment an agent stops, it hands everything back, which keeps the board self-cleaning and means a held file is never stale.

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -178,8 +179,16 @@ func hookPreToolUse(in hookInput) {
 		warnDegraded("tower unreachable, this edit is not coordinated with other agents")
 		return
 	}
-	c, ctx, cancel := hookClient()
+	// Budget the call: short normally, long enough to wait out a holding pattern
+	// when one is configured under enforce.
+	hold := holdTimeout()
+	budget := 2 * time.Second
+	if hold > 0 {
+		budget += hold
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	defer cancel()
+	c := client.FromEnv()
 	callsign := hookCallsign(in)
 	_, _ = c.Register(ctx, callsign, hookProject(in), os.Getpid())
 
@@ -191,6 +200,17 @@ func hookPreToolUse(in hookInput) {
 	if err != nil {
 		warnDegraded("clearance request failed mid-call, allowing the edit: " + err.Error())
 		return
+	}
+	if !res.Granted && hold > 0 {
+		// Holding pattern: rather than fail the edit outright, wait a bounded time
+		// for the holder to hand off. The wait is capped, so two agents blocked on
+		// each other both time out and deny instead of deadlocking.
+		fmt.Fprintf(os.Stderr, "Traffic Control: %s is held; holding up to %s for a handoff...\n", relPath, hold)
+		res, err = waitForClearance(ctx, c, callsign, relPath, mode, hold, res)
+		if err != nil {
+			warnDegraded("clearance request failed during holding pattern, allowing the edit: " + err.Error())
+			return
+		}
 	}
 	if !res.Granted {
 		emitPreToolDeny(fmt.Sprintf("Traffic Control: %s Another agent is working here; coordinate on the board (tc board) or pick a different file.", res.Message))
@@ -213,6 +233,44 @@ func hookPreToolUse(in hookInput) {
 		}
 		emitPreToolContext("Traffic Control: " + msg)
 	}
+}
+
+// holdTimeout reads TC_HOLD_TIMEOUT (seconds). Zero or unset means the holding
+// pattern is off and a blocked edit is denied immediately, the default. It only
+// has teeth under enforce, where an edit can actually be blocked.
+func holdTimeout() time.Duration {
+	n, err := strconv.Atoi(strings.TrimSpace(os.Getenv("TC_HOLD_TIMEOUT")))
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return time.Duration(n) * time.Second
+}
+
+// waitForClearance polls for a held path to clear, up to hold. It is entered
+// only after an initial denial, which it returns unchanged if the path never
+// frees, so the caller can deny with a meaningful message. A grant short
+// circuits the wait. The poll uses the call's context, so it also stops if the
+// overall budget runs out.
+func waitForClearance(ctx context.Context, c *client.Client, callsign, path, mode string, hold time.Duration, initial *protocol.ClearanceResult) (*protocol.ClearanceResult, error) {
+	res := initial
+	deadline := time.Now().Add(hold)
+	const poll = 500 * time.Millisecond
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return res, nil
+		case <-time.After(poll):
+		}
+		r, err := c.RequestClearance(ctx, callsign, path, mode, "editing", 0)
+		if err != nil {
+			return res, err
+		}
+		res = r
+		if res.Granted {
+			return res, nil
+		}
+	}
+	return res, nil
 }
 
 // hookPostToolUse refreshes the agent's lease on every path it currently holds.

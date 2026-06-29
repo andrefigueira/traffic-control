@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/andrefigueira/traffic-control/internal/protocol"
 )
@@ -199,6 +200,111 @@ func TestHookPreToolUseTowerDownWarnsButAllows(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "not coordinated") {
 		t.Fatalf("expected a degraded warning on stderr, got %q", stderr)
+	}
+}
+
+func TestHoldTimeout(t *testing.T) {
+	cases := map[string]time.Duration{
+		"":      0,
+		"0":     0,
+		"-5":    0,
+		"abc":   0,
+		"5":     5 * time.Second,
+		"  10 ": 10 * time.Second,
+	}
+	for in, want := range cases {
+		t.Setenv("TC_HOLD_TIMEOUT", in)
+		if got := holdTimeout(); got != want {
+			t.Fatalf("holdTimeout(%q) = %v, want %v", in, got, want)
+		}
+	}
+}
+
+func TestWaitForClearanceGrantsWhenReleased(t *testing.T) {
+	c, _ := startTower(t)
+	ctx := context.Background()
+	if _, err := c.RequestClearance(ctx, "other", "x.go", protocol.ModeExclusive, "", 0); err != nil {
+		t.Fatal(err)
+	}
+	initial, err := c.RequestClearance(ctx, "me", "x.go", protocol.ModeExclusive, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if initial.Granted {
+		t.Fatal("should start denied while another agent holds it")
+	}
+	// The holder hands off mid-wait, so the holding pattern should succeed.
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		_, _ = c.Handoff(context.Background(), "other", "")
+	}()
+	res, err := waitForClearance(ctx, c, "me", "x.go", protocol.ModeExclusive, 3*time.Second, initial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Granted {
+		t.Fatalf("should be granted after the holder hands off, got %+v", res)
+	}
+}
+
+func TestWaitForClearanceTimesOut(t *testing.T) {
+	c, _ := startTower(t)
+	ctx := context.Background()
+	if _, err := c.RequestClearance(ctx, "other", "y.go", protocol.ModeExclusive, "", 0); err != nil {
+		t.Fatal(err)
+	}
+	initial, err := c.RequestClearance(ctx, "me", "y.go", protocol.ModeExclusive, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	res, err := waitForClearance(ctx, c, "me", "y.go", protocol.ModeExclusive, 600*time.Millisecond, initial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Granted {
+		t.Fatal("should stay denied: the holder never released")
+	}
+	if time.Since(start) < 500*time.Millisecond {
+		t.Fatal("should have waited out the hold before denying")
+	}
+}
+
+func TestHookPreToolUseHoldingPatternClears(t *testing.T) {
+	c, _ := startTower(t)
+	t.Setenv("TC_ENFORCE", "1")
+	t.Setenv("TC_HOLD_TIMEOUT", "3")
+	if _, err := c.RequestClearance(context.Background(), "other", "shared.go", protocol.ModeAdvisory, "", 0); err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		time.Sleep(250 * time.Millisecond)
+		_, _ = c.Handoff(context.Background(), "other", "")
+	}()
+	in := hookInput{SessionID: "me", ToolName: "Edit", ToolInput: json.RawMessage(`{"file_path":"shared.go"}`)}
+	out := captureStdout(t, func() { hookPreToolUse(in) })
+	if strings.Contains(out, "deny") {
+		t.Fatalf("the holding pattern should have cleared the edit, got: %q", out)
+	}
+}
+
+func TestHookPreToolUseHoldingPatternDeniesOnTimeout(t *testing.T) {
+	c, _ := startTower(t)
+	t.Setenv("TC_ENFORCE", "1")
+	t.Setenv("TC_HOLD_TIMEOUT", "1")
+	// Held for the whole test, never released, so the wait must end in a denial.
+	if _, err := c.RequestClearance(context.Background(), "other", "locked.go", protocol.ModeExclusive, "", 0); err != nil {
+		t.Fatal(err)
+	}
+	in := hookInput{SessionID: "me", ToolName: "Edit", ToolInput: json.RawMessage(`{"file_path":"locked.go"}`)}
+	out := captureStdout(t, func() { hookPreToolUse(in) })
+	var m map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &m); err != nil {
+		t.Fatalf("not json: %v (%s)", err, out)
+	}
+	hso := m["hookSpecificOutput"].(map[string]interface{})
+	if hso["permissionDecision"] != "deny" {
+		t.Fatalf("should deny after the holding pattern times out, got %+v", hso)
 	}
 }
 

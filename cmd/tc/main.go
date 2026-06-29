@@ -43,6 +43,7 @@ Environment:
   TC_ADDR          Tower address (default 127.0.0.1:7700)
   TC_CALLSIGN      Your identity on the board (default derived from user/host)
   TC_ENFORCE       If "1", pre-tool-use blocks on any held path, not just exclusive
+  TC_HOLD_TIMEOUT  Seconds a blocked edit waits for a handoff before denying (0 = off)
   TC_NO_AUTOSTART  If "1", the SessionStart hook will not auto-start the tower
   TC_STATE_DIR     Where the pidfile and auto-start log live (default ~/.traffic-control)
 `
