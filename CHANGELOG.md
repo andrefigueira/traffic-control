@@ -4,6 +4,8 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-06-29
+
 ### Reliability follow-ups
 
 Closing the two failure modes most likely to bite a real multi-agent run.
