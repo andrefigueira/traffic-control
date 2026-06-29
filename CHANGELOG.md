@@ -4,6 +4,15 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ## [Unreleased]
 
+### Reliability follow-ups
+
+Closing the two failure modes most likely to bite a real multi-agent run.
+
+Added:
+
+- **Bash-edit awareness.** Bash can rewrite files without firing the Edit/Write hooks (`sed -i`, a formatter, a codemod). The Bash `PreToolUse` hook now snapshots the working tree's dirty set and the matching `PostToolUse` hook diffs it, claiming advisory clearances for whatever the command changed. A Bash edit becomes visible to other agents instead of being a silent blind spot. It is after-the-fact awareness, needs a git work tree, and is capped at 50 paths per command so a repo-wide codemod cannot flood the tower. `tc install-claude` now matches `Bash` on the Pre/Post hooks.
+- **Session-long MCP heartbeat.** The MCP server refreshes its session and held clearances on a 45s ticker for as long as it runs, so a long-reasoning turn that sits for minutes between tool calls no longer risks a hold expiring at the lease boundary. The beat is best-effort and never writes to stdout, so the JSON-RPC framing is untouched.
+
 ### Hardening pass (review + research follow-up)
 
 A round of fixes and features driven by a deep code review and a literature survey (see `RESEARCH-AND-GAPS.md`).

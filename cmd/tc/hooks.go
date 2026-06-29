@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -151,8 +152,14 @@ func hookPreToolUse(in hookInput) {
 	switch in.ToolName {
 	case "Edit", "Write", "MultiEdit", "NotebookEdit":
 		// these carry a file_path we can coordinate on
+	case "Bash":
+		// Bash carries no file_path, so it cannot be coordinated up front. Record
+		// the working tree's current dirty set so the matching PostToolUse can see
+		// what the command changed and claim those paths after the fact.
+		snapshotBashState(in)
+		return
 	default:
-		return // not a file mutation we track (Bash edits are a known gap)
+		return // not a file mutation we track
 	}
 
 	var ti struct {
@@ -219,8 +226,131 @@ func hookPostToolUse(in hookInput) {
 	if err := c.Ping(ctx); err != nil {
 		return // tower down: nothing to refresh, stay silent
 	}
-	_ = c.Heartbeat(ctx, hookCallsign(in))
+	callsign := hookCallsign(in)
+	_ = c.Heartbeat(ctx, callsign)
+
+	// Bash can mutate files without ever firing the Edit/Write hooks (sed -i, a
+	// formatter, a codemod). Diff the working tree against the pre-command
+	// snapshot and claim advisory clearances for whatever changed, so a Bash edit
+	// becomes visible to other agents instead of being a silent blind spot.
+	if in.ToolName == "Bash" {
+		coordinateBashChanges(ctx, c, callsign, in)
+	}
 }
+
+// maxBashClaims caps how many paths a single Bash command can claim, so a
+// repo-wide formatter or codemod cannot flood the tower with clearances.
+const maxBashClaims = 50
+
+// coordinateBashChanges compares the working tree to the pre-command snapshot
+// and claims advisory clearances for the newly changed paths. It is awareness
+// after the fact, so other agents reaching for those files get the usual overlap
+// warning; the change itself has already happened.
+func coordinateBashChanges(ctx context.Context, c *client.Client, callsign string, in hookInput) {
+	before := readBashSnapshot(in)
+	removeBashSnapshot(in)
+	after := gitDirtySet(in.Cwd)
+	if after == nil {
+		return // not a git repo, or git is unavailable
+	}
+	claimed := 0
+	for p := range after {
+		if before[p] {
+			continue // already dirty before the command, already coordinated
+		}
+		if claimed >= maxBashClaims {
+			break
+		}
+		claimed++
+		_, _ = c.RequestClearance(ctx, callsign, relativize(p, in.Cwd), protocol.ModeAdvisory, "edited via Bash", 0)
+	}
+}
+
+// gitDirtySet returns the set of paths git reports as changed in cwd, or nil if
+// cwd is not a git work tree or git cannot be run. Paths are relative to cwd, so
+// they match the keys the Edit/Write hooks produce for the same files.
+func gitDirtySet(cwd string) map[string]bool {
+	if cwd == "" {
+		return nil
+	}
+	// -z gives NUL-separated, unquoted paths, which sidesteps git's quoting of
+	// names with spaces or unicode.
+	out, err := exec.Command("git", "-C", cwd, "status", "--porcelain=v1", "-z").Output()
+	if err != nil {
+		return nil
+	}
+	set := map[string]bool{}
+	parts := strings.Split(string(out), "\x00")
+	for i := 0; i < len(parts); i++ {
+		e := parts[i]
+		if len(e) < 4 {
+			continue
+		}
+		// Entry is "XY PATH"; for a rename/copy the source path is the next token.
+		path := e[3:]
+		if e[0] == 'R' || e[0] == 'C' {
+			i++ // skip the source path that follows a rename/copy destination
+		}
+		set[path] = true
+	}
+	return set
+}
+
+// bashSnapshotPath is where the pre-command dirty set is stashed between the
+// Bash PreToolUse and PostToolUse hooks, keyed by session so concurrent agents
+// do not clobber each other.
+func bashSnapshotPath(in hookInput) string {
+	id := in.SessionID
+	if id == "" {
+		id = "default"
+	}
+	id = strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
+			return r
+		default:
+			return '_'
+		}
+	}, id)
+	return filepath.Join(stateDir(), "bash-"+id+".snap")
+}
+
+func snapshotBashState(in hookInput) {
+	set := gitDirtySet(in.Cwd)
+	if set == nil {
+		return
+	}
+	paths := make([]string, 0, len(set))
+	for p := range set {
+		paths = append(paths, p)
+	}
+	b, err := json.Marshal(paths)
+	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(stateDir(), 0o755); err != nil {
+		return
+	}
+	_ = os.WriteFile(bashSnapshotPath(in), b, 0o644)
+}
+
+func readBashSnapshot(in hookInput) map[string]bool {
+	set := map[string]bool{}
+	b, err := os.ReadFile(bashSnapshotPath(in))
+	if err != nil {
+		return set
+	}
+	var paths []string
+	if json.Unmarshal(b, &paths) != nil {
+		return set
+	}
+	for _, p := range paths {
+		set[p] = true
+	}
+	return set
+}
+
+func removeBashSnapshot(in hookInput) { _ = os.Remove(bashSnapshotPath(in)) }
 
 // hookStop hands off the agent's clearances when its turn ends. The next turn
 // re-requests them through PreToolUse, so holds never outlive active work. If

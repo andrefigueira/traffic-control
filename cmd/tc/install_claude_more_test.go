@@ -49,6 +49,13 @@ func TestCmdInstallClaudeWritesConfig(t *testing.T) {
 			t.Fatalf("missing hook event %q in %+v", ev, hooks)
 		}
 	}
+	// Bash must be in the Pre/Post matchers so Bash-driven edits are coordinated.
+	for _, ev := range []string{"PreToolUse", "PostToolUse"} {
+		entry := hooks[ev].([]interface{})[0].(map[string]interface{})
+		if m, _ := entry["matcher"].(string); !strings.Contains(m, "Bash") {
+			t.Fatalf("%s matcher should include Bash, got %q", ev, m)
+		}
+	}
 
 	mcpPath := filepath.Join(dir, ".mcp.json")
 	mb, err := os.ReadFile(mcpPath)

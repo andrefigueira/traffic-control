@@ -29,13 +29,13 @@ func cmdInstallClaude(args []string) error {
 		},
 		"PreToolUse": []interface{}{
 			map[string]interface{}{
-				"matcher": "Edit|Write|MultiEdit|NotebookEdit",
+				"matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
 				"hooks":   []interface{}{cmdHookEntry(bin, "pre-tool-use")},
 			},
 		},
 		"PostToolUse": []interface{}{
 			map[string]interface{}{
-				"matcher": "Edit|Write|MultiEdit|NotebookEdit",
+				"matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
 				"hooks":   []interface{}{cmdHookEntry(bin, "post-tool-use")},
 			},
 		},

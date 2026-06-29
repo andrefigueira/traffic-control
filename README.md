@@ -72,7 +72,7 @@ Alpha claimed a whole subtree with a recursive glob, and Bravo was turned away f
 
 - `SessionStart` checks the agent in and injects the current board into its context, so a fresh agent immediately knows who else is working and on what.
 - `PreToolUse` on Edit, Write, MultiEdit, and NotebookEdit requests clearance for the target file. Under an exclusive hold by another agent, the edit is blocked and the agent is told who holds it. Otherwise it proceeds, with an advisory note when someone else is nearby or has filed a flight plan over that path.
-- `PostToolUse` sends a heartbeat that refreshes the agent's holds, so an agent working a long turn never has a file swept out from under it.
+- `PostToolUse` sends a heartbeat that refreshes the agent's holds, so an agent working a long turn never has a file swept out from under it. On a Bash command it also diffs the working tree against a pre-command snapshot and claims advisory holds for whatever changed, so an edit made through `sed -i`, a formatter, or a codemod is still seen.
 - `Stop` hands the agent's clearances back when its turn ends, so holds never outlive active work.
 
 **MCP tools** are deliberate, called by the agent when it chooses: `file_flight_plan`, `request_clearance`, `handoff`, `whos_flying`, `read_board`, `check_path`.
@@ -118,7 +118,7 @@ It does not catch **semantic** coupling. One agent changing a function signature
 
 Two more honest edges:
 
-- **Bash edits bypass the hooks.** Clearance fires on Edit, Write, MultiEdit, and NotebookEdit. An agent that rewrites a file through `sed -i`, a formatter, or a codemod run via Bash is not seen. If the tower is unreachable for any reason, every hook fails open and says so on stderr, so a silent loss of coordination is at least a loud one.
+- **Bash edits are caught after the fact, not up front.** Clearance is requested before an Edit, Write, MultiEdit, or NotebookEdit. A file rewritten through `sed -i`, a formatter, or a codemod run via Bash cannot be coordinated before it happens, but the Bash hooks now diff the working tree and claim advisory holds for whatever changed, so the next agent to reach for those files is warned. This needs a git work tree and is awareness rather than prevention. If the tower is unreachable for any reason, every hook fails open and says so on stderr, so a silent loss of coordination is at least a loud one.
 - **State is in memory.** A tower restart drops presence and holds. The agents recover on their next turn, but durable storage across restarts is on the roadmap.
 
 ## The vocabulary

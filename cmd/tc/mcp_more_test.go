@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/andrefigueira/traffic-control/internal/client"
 	"github.com/andrefigueira/traffic-control/internal/protocol"
@@ -192,6 +193,50 @@ func TestMcpCallWrapsErrorsAsToolText(t *testing.T) {
 	content := res["content"].([]map[string]interface{})
 	if !strings.Contains(content[0]["text"].(string), "error") {
 		t.Fatalf("content = %+v", content)
+	}
+}
+
+// TestMcpHeartbeatLoopKeepsHoldsAlive proves the session-long heartbeat keeps an
+// MCP-held clearance from expiring at the lease boundary while the agent reasons
+// between tool calls.
+func TestMcpHeartbeatLoopKeepsHoldsAlive(t *testing.T) {
+	c, tw := startTower(t)
+	ctx := context.Background()
+	if _, err := c.Register(ctx, "mcp-agent", "p", 0); err != nil {
+		t.Fatal(err)
+	}
+	r, err := c.RequestClearance(ctx, "mcp-agent", "x.go", protocol.ModeExclusive, "", 60)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := r.Clearance.ExpiresAt
+
+	hbCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go mcpHeartbeatLoop(hbCtx, c, "mcp-agent", 5*time.Millisecond)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if tw.Clearances()[0].ExpiresAt.After(before) {
+			return // the beat extended the lease
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("heartbeat loop did not extend the lease")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func TestMcpHeartbeatLoopStopsOnCancel(t *testing.T) {
+	c, _ := startTower(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { mcpHeartbeatLoop(ctx, c, "whoever", 5*time.Millisecond); close(done) }()
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("heartbeat loop did not return after cancel")
 	}
 }
 

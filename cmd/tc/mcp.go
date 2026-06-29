@@ -16,9 +16,25 @@ import (
 // coordination tools directly. Framing is newline-delimited JSON-RPC 2.0, which
 // is the MCP stdio transport. stdout carries only protocol messages; everything
 // else goes to stderr.
+// mcpHeartbeatInterval is how often the live MCP session refreshes its holds.
+// It is comfortably inside the tower lease so a path is never swept mid-task,
+// and the session-idle window so a quiet session is not dropped.
+const mcpHeartbeatInterval = 45 * time.Second
+
 func cmdMCP(_ []string) error {
 	callsign := mcpCallsign()
 	c := client.FromEnv()
+
+	// Keep this session and any clearances it holds alive for as long as the MCP
+	// server is running, independent of tool-call cadence. A long-reasoning turn
+	// can sit for many minutes between tool calls; without this its holds could
+	// expire at the lease boundary while the agent is still working. The MCP
+	// process lives for the whole session, so it is the right place to do this.
+	// The heartbeat is best-effort and silent: a down tower simply no-ops, and
+	// nothing is ever written to stdout, so the JSON-RPC framing is untouched.
+	hbCtx, stopHeartbeat := context.WithCancel(context.Background())
+	defer stopHeartbeat()
+	go mcpHeartbeatLoop(hbCtx, c, callsign, mcpHeartbeatInterval)
 
 	in := bufio.NewScanner(os.Stdin)
 	in.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
@@ -46,6 +62,23 @@ func cmdMCP(_ []string) error {
 		out.Flush()
 	}
 	return nil
+}
+
+// mcpHeartbeatLoop refreshes the session on a ticker until ctx is cancelled.
+// Each beat is bounded by a short timeout so a wedged tower cannot stall it.
+func mcpHeartbeatLoop(ctx context.Context, c *client.Client, callsign string, every time.Duration) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			beatCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			_ = c.Heartbeat(beatCtx, callsign)
+			cancel()
+		}
+	}
 }
 
 func mcpCallsign() string {
