@@ -119,7 +119,7 @@ It does not catch **semantic** coupling. One agent changing a function signature
 Two more honest edges:
 
 - **Bash edits are caught after the fact, not up front.** Clearance is requested before an Edit, Write, MultiEdit, or NotebookEdit. A file rewritten through `sed -i`, a formatter, or a codemod run via Bash cannot be coordinated before it happens, but the Bash hooks now diff the working tree and claim advisory holds for whatever changed, so the next agent to reach for those files is warned. This needs a git work tree and is awareness rather than prevention. If the tower is unreachable for any reason, every hook fails open and says so on stderr, so a silent loss of coordination is at least a loud one.
-- **State is in memory.** A tower restart drops presence and holds. The agents recover on their next turn, but durable storage across restarts is on the roadmap.
+- **Holds and presence are in memory.** A tower restart drops live clearances and who is checked in. The agents recover on their next turn, and this is intentional: holds are turn-scoped and re-requested anyway. The board (flight plans and notes) is persisted to the state dir and reloaded on boot, so the awareness layer that is meant to outlast a turn also outlasts a restart.
 
 ## The vocabulary
 

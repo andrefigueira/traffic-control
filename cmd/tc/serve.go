@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/andrefigueira/traffic-control/internal/api"
@@ -27,6 +28,9 @@ func cmdServe(args []string) error {
 	}
 
 	tw := tower.New()
+	// Persist the board so flight plans and notes survive a tower restart. Holds
+	// and presence stay in memory by design: they are turn-scoped and re-acquired.
+	tw.EnablePersistence(filepath.Join(stateDir(), "board.json"))
 	srv := api.New(tw)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

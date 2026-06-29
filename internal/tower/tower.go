@@ -5,7 +5,9 @@
 package tower
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -32,15 +34,16 @@ const (
 
 // Tower holds all live coordination state.
 type Tower struct {
-	mu         sync.Mutex
-	sessions   map[string]*protocol.Session
-	clearances map[string]*protocol.Clearance
-	board      []protocol.BoardEntry
-	broker     *Broker
-	lease      time.Duration
-	sessIdle   time.Duration
-	seq        uint64
-	startedAt  time.Time
+	mu          sync.Mutex
+	sessions    map[string]*protocol.Session
+	clearances  map[string]*protocol.Clearance
+	board       []protocol.BoardEntry
+	broker      *Broker
+	lease       time.Duration
+	sessIdle    time.Duration
+	seq         uint64
+	startedAt   time.Time
+	persistPath string // board snapshot file, empty when persistence is off
 }
 
 // New returns a tower with default timings.
@@ -341,8 +344,51 @@ func (t *Tower) PostBoard(callsign, kind, message string, paths []string) protoc
 	if len(t.board) > maxBoardEntries {
 		t.board = t.board[len(t.board)-maxBoardEntries:]
 	}
+	t.persistLocked()
 	t.publish(protocol.EventBoardPosted, e)
 	return e
+}
+
+// EnablePersistence points the tower at a board snapshot file, loading any
+// entries already there so flight plans and notes survive a restart. Only the
+// board is persisted on purpose: clearances are turn-scoped and re-requested,
+// and sessions re-register on the next hook, so resurrecting either after a
+// crash would do more harm than good. It is best-effort, so a missing or corrupt
+// file simply starts empty.
+func (t *Tower) EnablePersistence(path string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.persistPath = path
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var board []protocol.BoardEntry
+	if json.Unmarshal(b, &board) != nil {
+		return // corrupt snapshot: start empty rather than refuse to run
+	}
+	if len(board) > maxBoardEntries {
+		board = board[len(board)-maxBoardEntries:]
+	}
+	t.board = board
+}
+
+// persistLocked writes the board to disk if persistence is on. Called with
+// t.mu held. The write is atomic (temp file then rename) and best-effort: a
+// disk error never breaks coordination, it only loses durability for that beat.
+func (t *Tower) persistLocked() {
+	if t.persistPath == "" {
+		return
+	}
+	b, err := json.Marshal(t.board)
+	if err != nil {
+		return
+	}
+	tmp := t.persistPath + ".tmp"
+	if os.WriteFile(tmp, b, 0o644) != nil {
+		return
+	}
+	_ = os.Rename(tmp, t.persistPath)
 }
 
 // ReadBoard returns the most recent entries, newest last, capped at limit.

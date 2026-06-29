@@ -12,6 +12,7 @@ Added:
 
 - **Bash-edit awareness.** Bash can rewrite files without firing the Edit/Write hooks (`sed -i`, a formatter, a codemod). The Bash `PreToolUse` hook now snapshots the working tree's dirty set and the matching `PostToolUse` hook diffs it, claiming advisory clearances for whatever the command changed. A Bash edit becomes visible to other agents instead of being a silent blind spot. It is after-the-fact awareness, needs a git work tree, and is capped at 50 paths per command so a repo-wide codemod cannot flood the tower. `tc install-claude` now matches `Bash` on the Pre/Post hooks.
 - **Session-long MCP heartbeat.** The MCP server refreshes its session and held clearances on a 45s ticker for as long as it runs, so a long-reasoning turn that sits for minutes between tool calls no longer risks a hold expiring at the lease boundary. The beat is best-effort and never writes to stdout, so the JSON-RPC framing is untouched.
+- **The board survives a tower restart.** Flight plans and notes are persisted to a snapshot file in the state dir and reloaded on boot, so a tower bounce no longer wipes the awareness layer. Holds and presence stay in memory by design, since they are turn-scoped and re-acquired on the next hook. Writes are atomic and best-effort, so a disk error never breaks coordination.
 
 ### Hardening pass (review + research follow-up)
 
