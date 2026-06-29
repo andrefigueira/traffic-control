@@ -216,22 +216,30 @@ func hookPreToolUse(in hookInput) {
 		emitPreToolDeny(fmt.Sprintf("Traffic Control: %s Another agent is working here; coordinate on the board (tc board) or pick a different file.", res.Message))
 		return
 	}
+	// Gather advisory context to inject without a permissionDecision. Returning
+	// "allow" here would auto-approve the tool (skipping the user's normal prompt)
+	// and the reason would go to the user, not the model, so context injection is
+	// the right tool. Path overlaps and (opt-in) symbol coupling are combined into
+	// one message, since only one hook output can be emitted.
+	var notes []string
 	if res.Advisory {
-		// Inject context so the model knows it is on shared ground, without a
-		// permissionDecision. Returning "allow" here would auto-approve the
-		// tool (skipping the user's normal prompt) and the reason would go to
-		// the user, not the model, so it would not achieve the intent.
-		//
-		// A clearance overlap names the holder and path; a flight-plan overlap
-		// has no Conflict clearance to name, so fall back to the tower's own
-		// message, which already describes the plan. Surfacing only the
-		// Conflict != nil case would make flight-plan warnings invisible to the
-		// agent, which is the whole point of filing one.
-		msg := res.Message
+		// A clearance overlap names the holder and path; a flight-plan overlap has
+		// no Conflict clearance to name, so fall back to the tower's own message,
+		// which already describes the plan. Surfacing only the Conflict != nil case
+		// would make flight-plan warnings invisible to the agent, which is the whole
+		// point of filing one.
 		if res.Conflict != nil {
-			msg = fmt.Sprintf("cleared, but %s is also touching %s. Proceed with care and avoid clobbering their work.", res.Conflict.Holder, res.Conflict.Path)
+			notes = append(notes, fmt.Sprintf("%s is also touching %s. Proceed with care and avoid clobbering their work.", res.Conflict.Holder, res.Conflict.Path))
+		} else {
+			notes = append(notes, res.Message)
 		}
-		emitPreToolContext("Traffic Control: " + msg)
+	}
+	if os.Getenv("TC_SYMBOLS") == "1" {
+		held, _ := c.Clearances(ctx)
+		notes = append(notes, symbolCoupling(relPath, in.Cwd, held, callsign)...)
+	}
+	if len(notes) > 0 {
+		emitPreToolContext("Traffic Control: " + strings.Join(notes, " "))
 	}
 }
 

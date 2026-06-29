@@ -116,7 +116,7 @@ Or open `http://127.0.0.1:7700/` directly. It shows, live over the event stream:
 
 Traffic Control catches **file-level** collisions: two agents reaching for the same file, the same directory, or paths that overlap through a glob, including recursive `**` subtree claims. It catches them up front, at the edit, rather than at merge time.
 
-It does not catch **semantic** coupling. One agent changing a function signature while another edits a caller in a different file will pass clearance and still break the build. The board and the scope are what help there, by keeping agents aware of each other's plans. Closing this gap with a lightweight symbol index is the next thing on the roadmap.
+It does not fully catch **semantic** coupling. One agent changing a function signature while another edits a caller in a different file will pass clearance and still break the build. There is now an opt-in first cut at this: set `TC_SYMBOLS=1` and the `PreToolUse` hook warns when the Go file you are about to edit and a file another agent holds share an exported symbol that one defines and the other uses. It is a heuristic (regex over source, not a parser, to keep the binary dependency-free), Go-only, and advisory, so it is awareness rather than a guarantee. The board and the scope remain the broader answer here.
 
 Two more honest edges:
 

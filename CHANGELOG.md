@@ -14,6 +14,7 @@ Added:
 - **Session-long MCP heartbeat.** The MCP server refreshes its session and held clearances on a 45s ticker for as long as it runs, so a long-reasoning turn that sits for minutes between tool calls no longer risks a hold expiring at the lease boundary. The beat is best-effort and never writes to stdout, so the JSON-RPC framing is untouched.
 - **The board survives a tower restart.** Flight plans and notes are persisted to a snapshot file in the state dir and reloaded on boot, so a tower bounce no longer wipes the awareness layer. Holds and presence stay in memory by design, since they are turn-scoped and re-acquired on the next hook. Writes are atomic and best-effort, so a disk error never breaks coordination.
 - **Holding pattern under enforce.** Set `TC_HOLD_TIMEOUT=N` and a blocked edit waits up to N seconds for the holder to hand off before being denied, instead of failing outright. The wait is bounded, so two agents blocked on each other both time out and deny rather than deadlocking. Off by default, so existing enforce behaviour is unchanged.
+- **Symbol-coupling awareness (experimental).** A first cut at semantic coupling, the gap path clearance cannot see. Set `TC_SYMBOLS=1` and `PreToolUse` warns when the Go file you are about to edit and a file another agent holds share an exported symbol that one defines and the other uses, in either direction. It is a heuristic (regex over source, kept dependency-free on purpose), Go-only, capped, and advisory, so it never blocks. Off by default.
 
 ### Hardening pass (review + research follow-up)
 
