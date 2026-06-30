@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -30,11 +31,14 @@ func TestMcpCwdAndPath(t *testing.T) {
 	if mcpCwd() == "" {
 		t.Fatal("mcpCwd should return the working directory")
 	}
-	if got := mcpPath(""); got != "" {
+	ws := mcpWorkspace()
+	if got := mcpPath("", ws); got != "" {
 		t.Fatalf("empty path should stay empty, got %q", got)
 	}
-	if got := mcpPath("rel.go"); got != "rel.go" {
-		t.Fatalf("a relative path under cwd should normalize to itself, got %q", got)
+	// A relative path canonicalizes to a workspace-relative key: non-empty and not
+	// absolute. The exact value depends on where the test runs, so do not pin it.
+	if got := mcpPath("rel.go", ws); got == "" || filepath.IsAbs(got) {
+		t.Fatalf("a relative path should produce a relative key, got %q", got)
 	}
 }
 
@@ -85,7 +89,7 @@ func TestDispatchToolReadBoard(t *testing.T) {
 	if err != nil || !strings.Contains(out, "board is empty") {
 		t.Fatalf("empty: err=%v out=%q", err, out)
 	}
-	if _, err := c.PostBoard(ctx, "alpha", protocol.KindNote, "hello", nil); err != nil {
+	if _, err := c.PostBoard(ctx, "alpha", "", protocol.KindNote, "hello", nil); err != nil {
 		t.Fatal(err)
 	}
 	out, err = dispatchTool(ctx, c, "me", "read_board", json.RawMessage(`{"limit":5}`))
@@ -119,8 +123,10 @@ func TestDispatchToolRequestClearance(t *testing.T) {
 	if err != nil || !strings.Contains(out, "CLEARED") {
 		t.Fatalf("grant: err=%v out=%q", err, out)
 	}
-	// Another agent now holds it exclusively, so the next request is denied.
-	if _, err := c.RequestClearance(ctx, "other", "y.go", protocol.ModeExclusive, "", 0); err != nil {
+	// Another agent now holds it exclusively in the same workspace, so the next
+	// request is denied. Seed it the way dispatchTool keys paths.
+	ws := mcpWorkspace()
+	if _, err := c.RequestClearance(ctx, "other", ws, mcpPath("y.go", ws), protocol.ModeExclusive, "", 0); err != nil {
 		t.Fatal(err)
 	}
 	out, err = dispatchTool(ctx, c, "me", "request_clearance", json.RawMessage(`{"path":"y.go"}`))
@@ -135,7 +141,8 @@ func TestDispatchToolRequestClearanceEnforceFloor(t *testing.T) {
 	ctx := context.Background()
 	// Someone holds it advisory; under enforce the model's request is forced to
 	// exclusive, which turns the overlap into a hard conflict and a denial.
-	if _, err := c.RequestClearance(ctx, "other", "z.go", protocol.ModeAdvisory, "", 0); err != nil {
+	ws := mcpWorkspace()
+	if _, err := c.RequestClearance(ctx, "other", ws, mcpPath("z.go", ws), protocol.ModeAdvisory, "", 0); err != nil {
 		t.Fatal(err)
 	}
 	out, err := dispatchTool(ctx, c, "me", "request_clearance", json.RawMessage(`{"path":"z.go","mode":"advisory"}`))
@@ -147,7 +154,7 @@ func TestDispatchToolRequestClearanceEnforceFloor(t *testing.T) {
 func TestDispatchToolHandoff(t *testing.T) {
 	c, _ := startTower(t)
 	ctx := context.Background()
-	if _, err := c.RequestClearance(ctx, "me", "x.go", protocol.ModeExclusive, "", 0); err != nil {
+	if _, err := c.RequestClearance(ctx, "me", "", "x.go", protocol.ModeExclusive, "", 0); err != nil {
 		t.Fatal(err)
 	}
 	out, err := dispatchTool(ctx, c, "me", "handoff", json.RawMessage(`{}`))
@@ -166,7 +173,8 @@ func TestDispatchToolCheckPath(t *testing.T) {
 	if err != nil || !strings.Contains(out, "is clear") {
 		t.Fatalf("clear: err=%v out=%q", err, out)
 	}
-	if _, err := c.RequestClearance(ctx, "other", "held.go", protocol.ModeExclusive, "", 0); err != nil {
+	ws := mcpWorkspace()
+	if _, err := c.RequestClearance(ctx, "other", ws, mcpPath("held.go", ws), protocol.ModeExclusive, "", 0); err != nil {
 		t.Fatal(err)
 	}
 	out, err = dispatchTool(ctx, c, "me", "check_path", json.RawMessage(`{"path":"held.go"}`))
@@ -205,7 +213,7 @@ func TestMcpHeartbeatLoopKeepsHoldsAlive(t *testing.T) {
 	if _, err := c.Register(ctx, "mcp-agent", "p", 0); err != nil {
 		t.Fatal(err)
 	}
-	r, err := c.RequestClearance(ctx, "mcp-agent", "x.go", protocol.ModeExclusive, "", 60)
+	r, err := c.RequestClearance(ctx, "mcp-agent", "", "x.go", protocol.ModeExclusive, "", 60)
 	if err != nil {
 		t.Fatal(err)
 	}

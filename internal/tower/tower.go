@@ -134,7 +134,7 @@ func (t *Tower) Deregister(callsign string) {
 // conflict is denied; an advisory overlap is granted but flagged so the caller
 // can warn. A request that only overlaps the caller's own clearances is always
 // granted (and refreshes them).
-func (t *Tower) RequestClearance(callsign, reqPath, mode, note string, ttl time.Duration) protocol.ClearanceResult {
+func (t *Tower) RequestClearance(callsign, workspace, reqPath, mode, note string, ttl time.Duration) protocol.ClearanceResult {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.expireLocked()
@@ -147,13 +147,15 @@ func (t *Tower) RequestClearance(callsign, reqPath, mode, note string, ttl time.
 	}
 	reqPath = protocol.NormalizePath(reqPath)
 
-	// Scan all overlapping holds by other agents. Pick deterministically (the
-	// earliest granted) so the holder named in the message is stable rather
+	// Scan all overlapping holds by other agents in the SAME workspace. Holds in
+	// other working trees (separate git worktrees, say) never conflict, since the
+	// same relative path there is a different physical file. Pick deterministically
+	// (the earliest granted) so the holder named in the message is stable rather
 	// than whatever Go's randomized map iteration lands on first.
 	var hardConflict *protocol.Clearance
 	var advisoryOverlap *protocol.Clearance
 	for _, c := range t.clearances {
-		if c.Holder == callsign {
+		if c.Holder == callsign || c.Workspace != workspace {
 			continue
 		}
 		if !protocol.PathsOverlap(c.Path, reqPath) {
@@ -188,7 +190,7 @@ func (t *Tower) RequestClearance(callsign, reqPath, mode, note string, ttl time.
 	now := time.Now()
 	var granted *protocol.Clearance
 	for _, c := range t.clearances {
-		if c.Holder == callsign && protocol.NormalizePath(c.Path) == reqPath {
+		if c.Holder == callsign && c.Workspace == workspace && protocol.NormalizePath(c.Path) == reqPath {
 			c.ExpiresAt = now.Add(ttl)
 			c.Mode = mode
 			if note != "" {
@@ -203,6 +205,7 @@ func (t *Tower) RequestClearance(callsign, reqPath, mode, note string, ttl time.
 			ID:        t.id("clr"),
 			Path:      reqPath,
 			Holder:    callsign,
+			Workspace: workspace,
 			Mode:      mode,
 			Note:      note,
 			GrantedAt: now,
@@ -221,7 +224,7 @@ func (t *Tower) RequestClearance(callsign, reqPath, mode, note string, ttl time.
 		t.publish(protocol.EventAdvisoryOverlap, map[string]interface{}{
 			"requester": callsign, "path": reqPath, "held_by": advisoryOverlap.Holder, "held_path": advisoryOverlap.Path,
 		})
-	} else if fp := t.flightPlanOverlapLocked(callsign, reqPath); fp != nil {
+	} else if fp := t.flightPlanOverlapLocked(callsign, workspace, reqPath); fp != nil {
 		// No live clearance overlaps, but another agent that is still flying
 		// filed a flight plan over this path. Flight plans live on the board,
 		// which survives a Stop handoff, so this is the awareness signal that
@@ -239,10 +242,10 @@ func (t *Tower) RequestClearance(callsign, reqPath, mode, note string, ttl time.
 // agent that is still flying and whose declared paths overlap reqPath. Plans
 // from agents who have left are ignored, so a stale plan does not warn forever.
 // Called with t.mu held.
-func (t *Tower) flightPlanOverlapLocked(callsign, reqPath string) *protocol.BoardEntry {
+func (t *Tower) flightPlanOverlapLocked(callsign, workspace, reqPath string) *protocol.BoardEntry {
 	for i := len(t.board) - 1; i >= 0; i-- { // newest first
 		e := t.board[i]
-		if e.Kind != protocol.KindFlightPlan || e.Callsign == callsign {
+		if e.Kind != protocol.KindFlightPlan || e.Callsign == callsign || e.Workspace != workspace {
 			continue
 		}
 		if _, live := t.sessions[e.Callsign]; !live {
@@ -284,13 +287,18 @@ func (t *Tower) releaseLocked(callsign, releasePath string) int {
 	return released
 }
 
-// Check reports whether any live clearance overlaps the path.
-func (t *Tower) Check(p string) protocol.CheckResult {
+// Check reports whether any live clearance in the given workspace overlaps the
+// path. Holds in other working trees are invisible here, so a check in one
+// worktree never reports a file held in another.
+func (t *Tower) Check(workspace, p string) protocol.CheckResult {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.expireLocked()
 	p = protocol.NormalizePath(p)
 	for _, c := range t.clearances {
+		if c.Workspace != workspace {
+			continue
+		}
 		if protocol.PathsOverlap(c.Path, p) {
 			out := *c
 			return protocol.CheckResult{Held: true, Clearance: &out}
@@ -326,19 +334,20 @@ func (t *Tower) Clearances() []protocol.Clearance {
 }
 
 // PostBoard appends an entry to the broadcast board.
-func (t *Tower) PostBoard(callsign, kind, message string, paths []string) protocol.BoardEntry {
+func (t *Tower) PostBoard(callsign, workspace, kind, message string, paths []string) protocol.BoardEntry {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if kind == "" {
 		kind = protocol.KindNote
 	}
 	e := protocol.BoardEntry{
-		ID:       t.id("brd"),
-		Callsign: callsign,
-		Kind:     kind,
-		Message:  message,
-		Paths:    paths,
-		PostedAt: time.Now(),
+		ID:        t.id("brd"),
+		Callsign:  callsign,
+		Workspace: workspace,
+		Kind:      kind,
+		Message:   message,
+		Paths:     paths,
+		PostedAt:  time.Now(),
 	}
 	t.board = append(t.board, e)
 	if len(t.board) > maxBoardEntries {

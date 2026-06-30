@@ -119,11 +119,12 @@ func (c *Client) WhosFlying(ctx context.Context) ([]protocol.Session, error) {
 	return out, err
 }
 
-// RequestClearance asks to hold a path.
-func (c *Client) RequestClearance(ctx context.Context, callsign, path, mode, note string, ttlSeconds int) (*protocol.ClearanceResult, error) {
+// RequestClearance asks to hold a path within a workspace (the working tree the
+// path is relative to). An empty workspace is the single global scope.
+func (c *Client) RequestClearance(ctx context.Context, callsign, workspace, path, mode, note string, ttlSeconds int) (*protocol.ClearanceResult, error) {
 	var out protocol.ClearanceResult
 	err := c.do(ctx, http.MethodPost, "/clearances", map[string]interface{}{
-		"callsign": callsign, "path": path, "mode": mode, "note": note, "ttl_seconds": ttlSeconds,
+		"callsign": callsign, "workspace": workspace, "path": path, "mode": mode, "note": note, "ttl_seconds": ttlSeconds,
 	}, &out)
 	return &out, err
 }
@@ -138,10 +139,11 @@ func (c *Client) Handoff(ctx context.Context, callsign, path string) (int, error
 	return out.Released, err
 }
 
-// Check reports whether a path is spoken for.
-func (c *Client) Check(ctx context.Context, path string) (*protocol.CheckResult, error) {
+// Check reports whether a path is spoken for within a workspace.
+func (c *Client) Check(ctx context.Context, workspace, path string) (*protocol.CheckResult, error) {
 	var out protocol.CheckResult
-	err := c.do(ctx, http.MethodGet, "/clearances/check?path="+url.QueryEscape(path), nil, &out)
+	q := "/clearances/check?path=" + url.QueryEscape(path) + "&workspace=" + url.QueryEscape(workspace)
+	err := c.do(ctx, http.MethodGet, q, nil, &out)
 	return &out, err
 }
 
@@ -152,11 +154,12 @@ func (c *Client) Clearances(ctx context.Context) ([]protocol.Clearance, error) {
 	return out, err
 }
 
-// PostBoard adds an entry to the broadcast board.
-func (c *Client) PostBoard(ctx context.Context, callsign, kind, message string, paths []string) (*protocol.BoardEntry, error) {
+// PostBoard adds an entry to the broadcast board, tagged with the workspace it
+// is about so flight-plan warnings stay scoped to one working tree.
+func (c *Client) PostBoard(ctx context.Context, callsign, workspace, kind, message string, paths []string) (*protocol.BoardEntry, error) {
 	var out protocol.BoardEntry
 	err := c.do(ctx, http.MethodPost, "/board", map[string]interface{}{
-		"callsign": callsign, "kind": kind, "message": message, "paths": paths,
+		"callsign": callsign, "workspace": workspace, "kind": kind, "message": message, "paths": paths,
 	}, &out)
 	return &out, err
 }

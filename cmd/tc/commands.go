@@ -49,9 +49,14 @@ func cmdBoardPost(args []string, kind string) error {
 	if msg == "" {
 		return fmt.Errorf("a message is required: tc %s \"what you are doing\"", kind)
 	}
+	cwd, ws := cwdWorkspace()
+	planPaths := splitCSV(*paths)
+	for i, p := range planPaths {
+		planPaths[i] = keyPath(p, cwd, ws)
+	}
 	c, ctx, cancel := cli()
 	defer cancel()
-	e, err := c.PostBoard(ctx, resolveCallsign(*callsign), kind, msg, splitCSV(*paths))
+	e, err := c.PostBoard(ctx, resolveCallsign(*callsign), ws, kind, msg, planPaths)
 	if err != nil {
 		return err
 	}
@@ -70,10 +75,11 @@ func cmdClearance(args []string) error {
 	if len(pos) < 1 {
 		return fmt.Errorf("a path is required: tc clearance internal/api/server.go")
 	}
-	path := pos[0]
+	cwd, ws := cwdWorkspace()
+	path := keyPath(pos[0], cwd, ws)
 	c, ctx, cancel := cli()
 	defer cancel()
-	res, err := c.RequestClearance(ctx, resolveCallsign(*callsign), path, *mode, *note, *ttl)
+	res, err := c.RequestClearance(ctx, resolveCallsign(*callsign), ws, path, *mode, *note, *ttl)
 	if err != nil {
 		return err
 	}
@@ -107,9 +113,10 @@ func cmdCheck(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("a path is required: tc check internal/api/server.go")
 	}
+	cwd, ws := cwdWorkspace()
 	c, ctx, cancel := cli()
 	defer cancel()
-	res, err := c.Check(ctx, args[0])
+	res, err := c.Check(ctx, ws, keyPath(args[0], cwd, ws))
 	if err != nil {
 		return err
 	}

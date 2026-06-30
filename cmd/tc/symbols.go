@@ -109,7 +109,7 @@ func referencesSymbol(src []byte, sym string) bool {
 // missing file, an unrecognized path, or a new file with nothing on disk yet
 // simply yields fewer or no lines. Capped so a busy tree cannot produce a wall
 // of warnings.
-func symbolCoupling(editPath, cwd string, held []protocol.Clearance, callsign string) []string {
+func symbolCoupling(editPath, cwd, workspace string, held []protocol.Clearance, callsign string) []string {
 	editLang := langOf(editPath)
 	if editLang == "" {
 		return nil
@@ -123,7 +123,8 @@ func symbolCoupling(editPath, cwd string, held []protocol.Clearance, callsign st
 		if len(msgs) >= maxMsgs {
 			break
 		}
-		if c.Holder == callsign || langOf(c.Path) != editLang {
+		// Same workspace only: coupling across separate worktrees is meaningless.
+		if c.Holder == callsign || c.Workspace != workspace || langOf(c.Path) != editLang {
 			continue
 		}
 		fSrc, err := os.ReadFile(absUnder(c.Path, cwd))

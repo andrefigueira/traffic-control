@@ -60,7 +60,8 @@ type Session struct {
 type Clearance struct {
 	ID        string    `json:"id"`
 	Path      string    `json:"path"`
-	Holder    string    `json:"holder"` // the holder's callsign
+	Holder    string    `json:"holder"`              // the holder's callsign
+	Workspace string    `json:"workspace,omitempty"` // the working tree this hold lives in
 	Mode      string    `json:"mode"`
 	Note      string    `json:"note,omitempty"`
 	GrantedAt time.Time `json:"granted_at"`
@@ -71,12 +72,13 @@ type Clearance struct {
 // or a free note. This is the awareness layer, and the part that is useful
 // even with no locking at all.
 type BoardEntry struct {
-	ID       string    `json:"id"`
-	Callsign string    `json:"callsign"`
-	Kind     string    `json:"kind"`
-	Message  string    `json:"message"`
-	Paths    []string  `json:"paths,omitempty"`
-	PostedAt time.Time `json:"posted_at"`
+	ID        string    `json:"id"`
+	Callsign  string    `json:"callsign"`
+	Workspace string    `json:"workspace,omitempty"` // the working tree this entry is about
+	Kind      string    `json:"kind"`
+	Message   string    `json:"message"`
+	Paths     []string  `json:"paths,omitempty"`
+	PostedAt  time.Time `json:"posted_at"`
 }
 
 // ClearanceResult is the answer to a clearance request.

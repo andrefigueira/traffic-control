@@ -67,7 +67,7 @@ func TestCmdClearance(t *testing.T) {
 
 func TestCmdHandoff(t *testing.T) {
 	c, _ := startTower(t)
-	if _, err := c.RequestClearance(context.Background(), "alpha", "x.go", protocol.ModeExclusive, "", 0); err != nil {
+	if _, err := c.RequestClearance(context.Background(), "alpha", "", "x.go", protocol.ModeExclusive, "", 0); err != nil {
 		t.Fatal(err)
 	}
 	out := captureStdout(t, func() {
@@ -107,7 +107,10 @@ func TestCmdCheck(t *testing.T) {
 	})
 	t.Run("reports a held path", func(t *testing.T) {
 		c, _ := startTower(t)
-		if _, err := c.RequestClearance(context.Background(), "alpha", "held.go", protocol.ModeExclusive, "", 0); err != nil {
+		// Seed the hold the way cmdCheck keys paths, so it works wherever the test
+		// runs (including inside this repo, where the workspace is the repo root).
+		cwd, ws := cwdWorkspace()
+		if _, err := c.RequestClearance(context.Background(), "alpha", ws, keyPath("held.go", cwd, ws), protocol.ModeExclusive, "", 0); err != nil {
 			t.Fatal(err)
 		}
 		out := captureStdout(t, func() {
@@ -189,7 +192,7 @@ func TestCmdBoard(t *testing.T) {
 	})
 	t.Run("shows entries with paths", func(t *testing.T) {
 		c, _ := startTower(t)
-		if _, err := c.PostBoard(context.Background(), "alpha", protocol.KindFlightPlan, "auth work", []string{"auth.go"}); err != nil {
+		if _, err := c.PostBoard(context.Background(), "alpha", "", protocol.KindFlightPlan, "auth work", []string{"auth.go"}); err != nil {
 			t.Fatal(err)
 		}
 		out := captureStdout(t, func() {

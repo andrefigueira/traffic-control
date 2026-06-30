@@ -175,7 +175,7 @@ func TestWhosFlyingDecodes(t *testing.T) {
 func TestRequestClearanceBodyAndDecode(t *testing.T) {
 	var rec recorder
 	c := stub(t, 200, `{"granted":true,"message":"cleared"}`, &rec)
-	res, err := c.RequestClearance(context.Background(), "alpha", "x.go", "exclusive", "note", 30)
+	res, err := c.RequestClearance(context.Background(), "alpha", "", "x.go", "exclusive", "note", 30)
 	if err != nil {
 		t.Fatalf("RequestClearance: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestHandoffReturnsReleasedCount(t *testing.T) {
 func TestCheckEscapesPathQuery(t *testing.T) {
 	var rec recorder
 	c := stub(t, 200, `{"held":true,"clearance":{"holder":"alpha"}}`, &rec)
-	res, err := c.Check(context.Background(), "dir/a b.go")
+	res, err := c.Check(context.Background(), "", "dir/a b.go")
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestClearancesDecodes(t *testing.T) {
 func TestPostBoardBody(t *testing.T) {
 	var rec recorder
 	c := stub(t, 200, `{"id":"brd_1","kind":"flightplan","message":"hi"}`, &rec)
-	e, err := c.PostBoard(context.Background(), "alpha", "flightplan", "hi", []string{"a.go", "b.go"})
+	e, err := c.PostBoard(context.Background(), "alpha", "", "flightplan", "hi", []string{"a.go", "b.go"})
 	if err != nil {
 		t.Fatalf("PostBoard: %v", err)
 	}
@@ -264,7 +264,7 @@ func TestReadBoardLimitInQuery(t *testing.T) {
 // into an error that carries the status and the trimmed body.
 func TestNon2xxBecomesError(t *testing.T) {
 	c := stub(t, http.StatusConflict, "  already held  ", nil)
-	_, err := c.RequestClearance(context.Background(), "a", "x.go", "", "", 0)
+	_, err := c.RequestClearance(context.Background(), "a", "", "x.go", "", "", 0)
 	if err == nil {
 		t.Fatal("expected error on 409")
 	}

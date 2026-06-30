@@ -14,8 +14,8 @@ func TestBoardSurvivesRestart(t *testing.T) {
 
 	tw := New()
 	tw.EnablePersistence(path)
-	tw.PostBoard("alpha", protocol.KindFlightPlan, "reworking auth", []string{"auth/"})
-	tw.PostBoard("bravo", protocol.KindDone, "migrations done", nil)
+	tw.PostBoard("alpha", "", protocol.KindFlightPlan, "reworking auth", []string{"auth/"})
+	tw.PostBoard("bravo", "", protocol.KindDone, "migrations done", nil)
 
 	// A fresh tower pointed at the same file reloads the board, newest last.
 	restarted := New()
@@ -48,7 +48,7 @@ func TestPersistenceCorruptFileRecovers(t *testing.T) {
 		t.Fatal("a corrupt snapshot should start empty")
 	}
 	// A later post overwrites the corrupt file cleanly, restoring durability.
-	tw.PostBoard("a", protocol.KindNote, "hi", nil)
+	tw.PostBoard("a", "", protocol.KindNote, "hi", nil)
 	restarted := New()
 	restarted.EnablePersistence(path)
 	if len(restarted.ReadBoard(0)) != 1 {
@@ -76,7 +76,7 @@ func TestPersistenceCapsOnLoad(t *testing.T) {
 func TestPersistenceOffByDefault(t *testing.T) {
 	// New() alone never touches disk; PostBoard must not error or persist.
 	tw := New()
-	tw.PostBoard("a", protocol.KindNote, "hi", nil)
+	tw.PostBoard("a", "", protocol.KindNote, "hi", nil)
 	if len(tw.ReadBoard(0)) != 1 {
 		t.Fatal("in-memory board should still work without persistence")
 	}

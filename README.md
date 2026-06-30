@@ -174,7 +174,7 @@ The design leans on one rule worth keeping in mind: a hook must never break the 
 
 ## Prior art
 
-- **git worktrees** (`isolation: worktree` in Claude Code): isolation by separate checkouts, no awareness between agents. The right tool when you want isolation.
+- **git worktrees** (`isolation: worktree` in Claude Code): isolation by separate checkouts, no awareness between agents. The right tool when you want isolation. Traffic Control is safe to run alongside it: coordination is scoped per working tree, so agents in separate worktrees never falsely collide on the same relative path.
 - **Claude Code agent teams**: shared task list, mailbox, and presence for multiple sessions in one tree, with file conflicts left to the user to avoid by hand.
 - **`agent-comms` and similar**: agents announce files and negotiate before starting, usually poll-based, no daemon, no live presence, no enforcement.
 

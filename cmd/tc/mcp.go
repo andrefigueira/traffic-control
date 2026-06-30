@@ -99,12 +99,19 @@ func mcpCwd() string {
 	return ""
 }
 
-// mcpPath canonicalizes a path argument the same way the hooks do.
-func mcpPath(p string) string {
+// mcpWorkspace is the working tree the MCP server coordinates within, scoping
+// its holds to this tree the same way the hooks do.
+func mcpWorkspace() string {
+	return workspaceRoot(mcpCwd())
+}
+
+// mcpPath canonicalizes a path argument the same way the hooks do, keyed to the
+// workspace root.
+func mcpPath(p, ws string) string {
 	if p == "" {
 		return ""
 	}
-	return relativize(p, mcpCwd())
+	return keyPath(p, mcpCwd(), ws)
 }
 
 type rpcRequest struct {
@@ -226,6 +233,7 @@ func mcpCall(c *client.Client, callsign string, params json.RawMessage) map[stri
 }
 
 func dispatchTool(ctx context.Context, c *client.Client, callsign, name string, args json.RawMessage) (string, error) {
+	ws := mcpWorkspace()
 	switch name {
 	case "whos_flying":
 		sessions, err := c.WhosFlying(ctx)
@@ -267,9 +275,9 @@ func dispatchTool(ctx context.Context, c *client.Client, callsign, name string, 
 		}
 		paths := make([]string, 0, len(a.Paths))
 		for _, p := range a.Paths {
-			paths = append(paths, mcpPath(p))
+			paths = append(paths, mcpPath(p, ws))
 		}
-		e, err := c.PostBoard(ctx, callsign, protocol.KindFlightPlan, a.Message, paths)
+		e, err := c.PostBoard(ctx, callsign, ws, protocol.KindFlightPlan, a.Message, paths)
 		if err != nil {
 			return "", err
 		}
@@ -291,7 +299,7 @@ func dispatchTool(ctx context.Context, c *client.Client, callsign, name string, 
 		if os.Getenv("TC_ENFORCE") == "1" {
 			mode = protocol.ModeExclusive
 		}
-		res, err := c.RequestClearance(ctx, callsign, mcpPath(a.Path), mode, a.Note, 0)
+		res, err := c.RequestClearance(ctx, callsign, ws, mcpPath(a.Path, ws), mode, a.Note, 0)
 		if err != nil {
 			return "", err
 		}
@@ -305,7 +313,7 @@ func dispatchTool(ctx context.Context, c *client.Client, callsign, name string, 
 			Path string `json:"path"`
 		}
 		_ = json.Unmarshal(args, &a)
-		n, err := c.Handoff(ctx, callsign, mcpPath(a.Path))
+		n, err := c.Handoff(ctx, callsign, mcpPath(a.Path, ws))
 		if err != nil {
 			return "", err
 		}
@@ -319,8 +327,8 @@ func dispatchTool(ctx context.Context, c *client.Client, callsign, name string, 
 		if a.Path == "" {
 			return "", fmt.Errorf("path is required")
 		}
-		p := mcpPath(a.Path)
-		res, err := c.Check(ctx, p)
+		p := mcpPath(a.Path, ws)
+		res, err := c.Check(ctx, ws, p)
 		if err != nil {
 			return "", err
 		}

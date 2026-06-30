@@ -71,14 +71,14 @@ func TestSymbolCouplingBothDirections(t *testing.T) {
 
 	held := []protocol.Clearance{{Path: "helper.go", Holder: "other"}}
 	// caller.go uses Authenticate, which other is editing in helper.go.
-	msgs := symbolCoupling("caller.go", dir, held, "me")
+	msgs := symbolCoupling("caller.go", dir, "", held, "me")
 	if len(msgs) != 1 || !strings.Contains(msgs[0], "Authenticate") || !strings.Contains(msgs[0], "other") {
 		t.Fatalf("expected a coupling note naming Authenticate and other, got %v", msgs)
 	}
 
 	// Reverse: editing model.go (defines Frobnicate) while other holds user.go.
 	held2 := []protocol.Clearance{{Path: "user.go", Holder: "other"}}
-	msgs2 := symbolCoupling("model.go", dir, held2, "me")
+	msgs2 := symbolCoupling("model.go", dir, "", held2, "me")
 	if len(msgs2) != 1 || !strings.Contains(msgs2[0], "Frobnicate") {
 		t.Fatalf("expected a reverse-direction coupling note, got %v", msgs2)
 	}
@@ -93,7 +93,7 @@ func TestSymbolCouplingNoFalsePositives(t *testing.T) {
 		t.Fatal(err)
 	}
 	held := []protocol.Clearance{{Path: "a.go", Holder: "other"}}
-	if msgs := symbolCoupling("b.go", dir, held, "me"); len(msgs) != 0 {
+	if msgs := symbolCoupling("b.go", dir, "", held, "me"); len(msgs) != 0 {
 		t.Fatalf("unrelated files should not couple, got %v", msgs)
 	}
 }
@@ -104,14 +104,14 @@ func TestSymbolCouplingIgnoresNonGoAndSelf(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A non-Go edit path yields nothing.
-	if msgs := symbolCoupling("README.md", dir, []protocol.Clearance{{Path: "x.go", Holder: "other"}}, "me"); msgs != nil {
+	if msgs := symbolCoupling("README.md", dir, "", []protocol.Clearance{{Path: "x.go", Holder: "other"}}, "me"); msgs != nil {
 		t.Fatalf("non-go edit should yield nil, got %v", msgs)
 	}
 	// A hold by the caller itself is skipped.
 	if err := os.WriteFile(filepath.Join(dir, "y.go"), []byte("package x\nfunc run(){ Authenticate() }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if msgs := symbolCoupling("y.go", dir, []protocol.Clearance{{Path: "x.go", Holder: "me"}}, "me"); len(msgs) != 0 {
+	if msgs := symbolCoupling("y.go", dir, "", []protocol.Clearance{{Path: "x.go", Holder: "me"}}, "me"); len(msgs) != 0 {
 		t.Fatalf("self-held files should be skipped, got %v", msgs)
 	}
 }
@@ -172,7 +172,7 @@ func TestSymbolCouplingTypeScript(t *testing.T) {
 	mustWrite(t, dir, "auth.ts", "export function authenticate(u: string) { return true }\n")
 	mustWrite(t, dir, "login.ts", "import { authenticate } from './auth'\nfunction run() { authenticate('a') }\n")
 	held := []protocol.Clearance{{Path: "auth.ts", Holder: "other"}}
-	msgs := symbolCoupling("login.ts", dir, held, "me")
+	msgs := symbolCoupling("login.ts", dir, "", held, "me")
 	if len(msgs) != 1 || !strings.Contains(msgs[0], "authenticate") {
 		t.Fatalf("expected a TS coupling note, got %v", msgs)
 	}
@@ -183,7 +183,7 @@ func TestSymbolCouplingPython(t *testing.T) {
 	mustWrite(t, dir, "service.py", "def authenticate(user):\n    return True\n")
 	mustWrite(t, dir, "views.py", "from service import authenticate\n\ndef handler():\n    authenticate('x')\n")
 	held := []protocol.Clearance{{Path: "service.py", Holder: "other"}}
-	msgs := symbolCoupling("views.py", dir, held, "me")
+	msgs := symbolCoupling("views.py", dir, "", held, "me")
 	if len(msgs) != 1 || !strings.Contains(msgs[0], "authenticate") {
 		t.Fatalf("expected a Python coupling note, got %v", msgs)
 	}
@@ -195,7 +195,7 @@ func TestSymbolCouplingDoesNotCrossLanguages(t *testing.T) {
 	mustWrite(t, dir, "thing.go", "package x\nfunc Process() {}\n")
 	mustWrite(t, dir, "thing.py", "def use():\n    Process()\n")
 	held := []protocol.Clearance{{Path: "thing.go", Holder: "other"}}
-	if msgs := symbolCoupling("thing.py", dir, held, "me"); len(msgs) != 0 {
+	if msgs := symbolCoupling("thing.py", dir, "", held, "me"); len(msgs) != 0 {
 		t.Fatalf("Go and Python files should not couple, got %v", msgs)
 	}
 }
@@ -217,8 +217,9 @@ func TestHookPreToolUseSymbolAdvisory(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package x\nfunc run(){ Authenticate() }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Another agent holds helper.go (a different file, so no path overlap).
-	if _, err := c.RequestClearance(context.Background(), "other", "helper.go", protocol.ModeAdvisory, "", 0); err != nil {
+	// Another agent holds helper.go (a different file, so no path overlap) in the
+	// same workspace the hook will compute for dir.
+	if _, err := c.RequestClearance(context.Background(), "other", workspaceRoot(dir), "helper.go", protocol.ModeAdvisory, "", 0); err != nil {
 		t.Fatal(err)
 	}
 	in := hookInput{SessionID: "symdemo", Cwd: dir, ToolName: "Edit", ToolInput: json.RawMessage(`{"file_path":"main.go"}`)}
@@ -242,7 +243,7 @@ func TestHookPreToolUseSymbolsOffByDefault(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package x\nfunc run(){ Authenticate() }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.RequestClearance(context.Background(), "other", "helper.go", protocol.ModeAdvisory, "", 0); err != nil {
+	if _, err := c.RequestClearance(context.Background(), "other", "", "helper.go", protocol.ModeAdvisory, "", 0); err != nil {
 		t.Fatal(err)
 	}
 	in := hookInput{SessionID: "symoff", Cwd: dir, ToolName: "Edit", ToolInput: json.RawMessage(`{"file_path":"main.go"}`)}

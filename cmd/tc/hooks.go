@@ -170,7 +170,8 @@ func hookPreToolUse(in hookInput) {
 	if ti.FilePath == "" {
 		return
 	}
-	relPath := relativize(ti.FilePath, in.Cwd)
+	ws := workspaceRoot(in.Cwd)
+	relPath := keyPath(ti.FilePath, in.Cwd, ws)
 
 	// Make coordination self-healing: if the tower is not up, try to start it
 	// rather than only pinging. If it still cannot be reached, allow the edit
@@ -196,7 +197,7 @@ func hookPreToolUse(in hookInput) {
 	if os.Getenv("TC_ENFORCE") == "1" {
 		mode = protocol.ModeExclusive
 	}
-	res, err := c.RequestClearance(ctx, callsign, relPath, mode, "editing", 0)
+	res, err := c.RequestClearance(ctx, callsign, ws, relPath, mode, "editing", 0)
 	if err != nil {
 		warnDegraded("clearance request failed mid-call, allowing the edit: " + err.Error())
 		return
@@ -206,7 +207,7 @@ func hookPreToolUse(in hookInput) {
 		// for the holder to hand off. The wait is capped, so two agents blocked on
 		// each other both time out and deny instead of deadlocking.
 		fmt.Fprintf(os.Stderr, "Traffic Control: %s is held; holding up to %s for a handoff...\n", relPath, hold)
-		res, err = waitForClearance(ctx, c, callsign, relPath, mode, hold, res)
+		res, err = waitForClearance(ctx, c, callsign, ws, relPath, mode, hold, res)
 		if err != nil {
 			warnDegraded("clearance request failed during holding pattern, allowing the edit: " + err.Error())
 			return
@@ -236,7 +237,7 @@ func hookPreToolUse(in hookInput) {
 	}
 	if os.Getenv("TC_SYMBOLS") == "1" {
 		held, _ := c.Clearances(ctx)
-		notes = append(notes, symbolCoupling(relPath, in.Cwd, held, callsign)...)
+		notes = append(notes, symbolCoupling(relPath, in.Cwd, ws, held, callsign)...)
 	}
 	if len(notes) > 0 {
 		emitPreToolContext("Traffic Control: " + strings.Join(notes, " "))
@@ -259,7 +260,7 @@ func holdTimeout() time.Duration {
 // frees, so the caller can deny with a meaningful message. A grant short
 // circuits the wait. The poll uses the call's context, so it also stops if the
 // overall budget runs out.
-func waitForClearance(ctx context.Context, c *client.Client, callsign, path, mode string, hold time.Duration, initial *protocol.ClearanceResult) (*protocol.ClearanceResult, error) {
+func waitForClearance(ctx context.Context, c *client.Client, callsign, workspace, path, mode string, hold time.Duration, initial *protocol.ClearanceResult) (*protocol.ClearanceResult, error) {
 	res := initial
 	deadline := time.Now().Add(hold)
 	const poll = 500 * time.Millisecond
@@ -269,7 +270,7 @@ func waitForClearance(ctx context.Context, c *client.Client, callsign, path, mod
 			return res, nil
 		case <-time.After(poll):
 		}
-		r, err := c.RequestClearance(ctx, callsign, path, mode, "editing", 0)
+		r, err := c.RequestClearance(ctx, callsign, workspace, path, mode, "editing", 0)
 		if err != nil {
 			return res, err
 		}
@@ -319,6 +320,7 @@ func coordinateBashChanges(ctx context.Context, c *client.Client, callsign strin
 	if after == nil {
 		return // not a git repo, or git is unavailable
 	}
+	ws := workspaceRoot(in.Cwd)
 	claimed := 0
 	for p := range after {
 		if before[p] {
@@ -328,7 +330,7 @@ func coordinateBashChanges(ctx context.Context, c *client.Client, callsign strin
 			break
 		}
 		claimed++
-		_, _ = c.RequestClearance(ctx, callsign, relativize(p, in.Cwd), protocol.ModeAdvisory, "edited via Bash", 0)
+		_, _ = c.RequestClearance(ctx, callsign, ws, keyPath(p, in.Cwd, ws), protocol.ModeAdvisory, "edited via Bash", 0)
 	}
 }
 
@@ -429,6 +431,42 @@ func hookStop(in hookInput) {
 		return
 	}
 	_, _ = c.Handoff(ctx, hookCallsign(in), "")
+}
+
+// workspaceRoot returns the working tree that scopes coordination: the git
+// toplevel of cwd, symlink-resolved so it matches however an agent spells its
+// paths. Two separate git worktrees have different toplevels, so a hold in one
+// never conflicts with the same relative path in another. Falls back to the
+// resolved cwd when cwd is not a git work tree, and to "" when there is no cwd.
+func workspaceRoot(cwd string) string {
+	if cwd == "" {
+		return ""
+	}
+	if out, err := exec.Command("git", "-C", cwd, "rev-parse", "--show-toplevel").Output(); err == nil {
+		if root := strings.TrimSpace(string(out)); root != "" {
+			return evalBestEffort(root)
+		}
+	}
+	return evalBestEffort(cwd)
+}
+
+// keyPath resolves p against the session cwd, then expresses it relative to the
+// workspace root, so the clearance key is stable within a tree and distinct
+// across trees. Anchoring to the workspace root (not cwd) also means two agents
+// in different subdirectories of one tree key the same file identically.
+func keyPath(p, cwd, ws string) string {
+	abs := p
+	if !filepath.IsAbs(abs) && cwd != "" {
+		abs = filepath.Join(cwd, abs)
+	}
+	return relativize(abs, ws)
+}
+
+// cwdWorkspace returns the CLI's working directory and its workspace root, so
+// CLI commands key paths the same way the hooks do and interoperate in one tree.
+func cwdWorkspace() (string, string) {
+	cwd, _ := os.Getwd()
+	return cwd, workspaceRoot(cwd)
 }
 
 // relativize expresses a file path as a stable, repo-relative form so two

@@ -129,7 +129,7 @@ func TestDeregisterAlwaysOK(t *testing.T) {
 func TestReadBoardRespectsLimit(t *testing.T) {
 	ts, tw := newTestServer(t)
 	for i := 0; i < 5; i++ {
-		tw.PostBoard("a", "note", "msg", nil)
+		tw.PostBoard("a", "", "note", "msg", nil)
 	}
 	resp, err := http.Get(ts.URL + "/board?limit=2")
 	if err != nil {

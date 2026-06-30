@@ -53,12 +53,12 @@ func TestAPIRoundTrip(t *testing.T) {
 		t.Fatalf("register bravo: %v", err)
 	}
 
-	res, err := c.RequestClearance(ctx, "alpha", "x.go", protocol.ModeExclusive, "", 0)
+	res, err := c.RequestClearance(ctx, "alpha", "", "x.go", protocol.ModeExclusive, "", 0)
 	if err != nil || !res.Granted {
 		t.Fatalf("alpha clearance: err=%v res=%+v", err, res)
 	}
 
-	denied, err := c.RequestClearance(ctx, "bravo", "x.go", protocol.ModeAdvisory, "", 0)
+	denied, err := c.RequestClearance(ctx, "bravo", "", "x.go", protocol.ModeAdvisory, "", 0)
 	if err != nil {
 		t.Fatalf("bravo request: %v", err)
 	}
@@ -66,12 +66,12 @@ func TestAPIRoundTrip(t *testing.T) {
 		t.Fatal("bravo must be denied on alpha's exclusive path")
 	}
 
-	chk, err := c.Check(ctx, "x.go")
+	chk, err := c.Check(ctx, "", "x.go")
 	if err != nil || !chk.Held || chk.Clearance.Holder != "alpha" {
 		t.Fatalf("check x.go: err=%v res=%+v", err, chk)
 	}
 
-	if _, err := c.PostBoard(ctx, "alpha", protocol.KindFlightPlan, "working", []string{"x.go"}); err != nil {
+	if _, err := c.PostBoard(ctx, "alpha", "", protocol.KindFlightPlan, "working", []string{"x.go"}); err != nil {
 		t.Fatalf("post board: %v", err)
 	}
 	board, err := c.ReadBoard(ctx, 10)
@@ -83,7 +83,7 @@ func TestAPIRoundTrip(t *testing.T) {
 	if err != nil || n != 1 {
 		t.Fatalf("handoff: err=%v n=%d", err, n)
 	}
-	after, _ := c.Check(ctx, "x.go")
+	after, _ := c.Check(ctx, "", "x.go")
 	if after.Held {
 		t.Fatal("x.go should be clear after handoff")
 	}

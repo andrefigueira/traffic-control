@@ -4,6 +4,10 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ## [Unreleased]
 
+### Fixed
+
+- **Separate git worktrees no longer falsely collide.** Coordination is now scoped by working tree (the git toplevel), so two agents editing the same relative path in different worktrees (or under Claude Code's `isolation: worktree`) are seen as the distinct files they are, not a conflict. Clearances, checks, and flight-plan warnings are all workspace-scoped; symbol coupling only compares files within one tree. Paths are keyed relative to the tree root, so two agents in different subdirectories of one tree also agree on a file's identity. This makes Traffic Control safe to run alongside worktrees rather than fighting their isolation.
+
 ## [0.2.0] - 2026-06-30
 
 ### Added

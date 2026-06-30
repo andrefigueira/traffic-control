@@ -141,6 +141,7 @@ func (s *Server) heartbeat(w http.ResponseWriter, r *http.Request) {
 func (s *Server) requestClearance(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Callsign   string `json:"callsign"`
+		Workspace  string `json:"workspace"`
 		Path       string `json:"path"`
 		Mode       string `json:"mode"`
 		Note       string `json:"note"`
@@ -154,7 +155,7 @@ func (s *Server) requestClearance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ttl := time.Duration(in.TTLSeconds) * time.Second
-	writeJSON(w, http.StatusOK, s.tw.RequestClearance(in.Callsign, in.Path, in.Mode, in.Note, ttl))
+	writeJSON(w, http.StatusOK, s.tw.RequestClearance(in.Callsign, in.Workspace, in.Path, in.Mode, in.Note, ttl))
 }
 
 func (s *Server) listClearances(w http.ResponseWriter, _ *http.Request) {
@@ -182,15 +183,16 @@ func (s *Server) check(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "path query param is required")
 		return
 	}
-	writeJSON(w, http.StatusOK, s.tw.Check(p))
+	writeJSON(w, http.StatusOK, s.tw.Check(r.URL.Query().Get("workspace"), p))
 }
 
 func (s *Server) postBoard(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Callsign string   `json:"callsign"`
-		Kind     string   `json:"kind"`
-		Message  string   `json:"message"`
-		Paths    []string `json:"paths"`
+		Callsign  string   `json:"callsign"`
+		Workspace string   `json:"workspace"`
+		Kind      string   `json:"kind"`
+		Message   string   `json:"message"`
+		Paths     []string `json:"paths"`
 	}
 	if !readJSON(w, r, &in) {
 		return
@@ -199,7 +201,7 @@ func (s *Server) postBoard(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "callsign and message are required")
 		return
 	}
-	writeJSON(w, http.StatusOK, s.tw.PostBoard(in.Callsign, in.Kind, in.Message, in.Paths))
+	writeJSON(w, http.StatusOK, s.tw.PostBoard(in.Callsign, in.Workspace, in.Kind, in.Message, in.Paths))
 }
 
 func (s *Server) readBoard(w http.ResponseWriter, r *http.Request) {

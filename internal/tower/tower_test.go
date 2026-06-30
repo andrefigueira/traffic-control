@@ -25,12 +25,12 @@ func TestAdvisoryOverlapStillGrants(t *testing.T) {
 	tw.Register("alpha", "p", 0)
 	tw.Register("bravo", "p", 0)
 
-	first := tw.RequestClearance("alpha", "internal/api/server.go", protocol.ModeAdvisory, "", 0)
+	first := tw.RequestClearance("alpha", "", "internal/api/server.go", protocol.ModeAdvisory, "", 0)
 	if !first.Granted {
 		t.Fatalf("first request should be granted")
 	}
 	// Bravo asks for the same path, advisory. It is granted but flagged.
-	second := tw.RequestClearance("bravo", "internal/api/server.go", protocol.ModeAdvisory, "", 0)
+	second := tw.RequestClearance("bravo", "", "internal/api/server.go", protocol.ModeAdvisory, "", 0)
 	if !second.Granted {
 		t.Fatalf("advisory overlap should still grant")
 	}
@@ -44,10 +44,10 @@ func TestExclusiveConflictDenied(t *testing.T) {
 	tw.Register("alpha", "p", 0)
 	tw.Register("bravo", "p", 0)
 
-	if r := tw.RequestClearance("alpha", "cmd/tc/main.go", protocol.ModeExclusive, "refactor", 0); !r.Granted {
+	if r := tw.RequestClearance("alpha", "", "cmd/tc/main.go", protocol.ModeExclusive, "refactor", 0); !r.Granted {
 		t.Fatalf("alpha exclusive should be granted")
 	}
-	r := tw.RequestClearance("bravo", "cmd/tc/main.go", protocol.ModeAdvisory, "", 0)
+	r := tw.RequestClearance("bravo", "", "cmd/tc/main.go", protocol.ModeAdvisory, "", 0)
 	if r.Granted {
 		t.Fatalf("request against an exclusive hold must be denied")
 	}
@@ -59,8 +59,8 @@ func TestExclusiveConflictDenied(t *testing.T) {
 func TestHoldingOwnPathRefreshes(t *testing.T) {
 	tw := New()
 	tw.Register("alpha", "p", 0)
-	r1 := tw.RequestClearance("alpha", "x.go", protocol.ModeExclusive, "", time.Minute)
-	r2 := tw.RequestClearance("alpha", "x.go", protocol.ModeExclusive, "", time.Hour)
+	r1 := tw.RequestClearance("alpha", "", "x.go", protocol.ModeExclusive, "", time.Minute)
+	r2 := tw.RequestClearance("alpha", "", "x.go", protocol.ModeExclusive, "", time.Hour)
 	if !r1.Granted || !r2.Granted {
 		t.Fatalf("re-requesting your own path should always grant")
 	}
@@ -76,13 +76,13 @@ func TestHandoffReleases(t *testing.T) {
 	tw := New()
 	tw.Register("alpha", "p", 0)
 	tw.Register("bravo", "p", 0)
-	tw.RequestClearance("alpha", "shared.go", protocol.ModeExclusive, "", 0)
+	tw.RequestClearance("alpha", "", "shared.go", protocol.ModeExclusive, "", 0)
 
 	if n := tw.Handoff("alpha", "shared.go"); n != 1 {
 		t.Fatalf("expected to release 1 clearance, released %d", n)
 	}
 	// Now bravo can take it.
-	if r := tw.RequestClearance("bravo", "shared.go", protocol.ModeExclusive, "", 0); !r.Granted {
+	if r := tw.RequestClearance("bravo", "", "shared.go", protocol.ModeExclusive, "", 0); !r.Granted {
 		t.Fatalf("after handoff bravo should be cleared, got %+v", r)
 	}
 }
@@ -91,9 +91,9 @@ func TestDirectoryClearanceCoversChildren(t *testing.T) {
 	tw := New()
 	tw.Register("alpha", "p", 0)
 	tw.Register("bravo", "p", 0)
-	tw.RequestClearance("alpha", "internal/", protocol.ModeExclusive, "sweeping", 0)
+	tw.RequestClearance("alpha", "", "internal/", protocol.ModeExclusive, "sweeping", 0)
 
-	r := tw.RequestClearance("bravo", "internal/api/server.go", protocol.ModeAdvisory, "", 0)
+	r := tw.RequestClearance("bravo", "", "internal/api/server.go", protocol.ModeAdvisory, "", 0)
 	if r.Granted {
 		t.Fatalf("a child path should conflict with an exclusive directory clearance")
 	}
@@ -102,7 +102,7 @@ func TestDirectoryClearanceCoversChildren(t *testing.T) {
 func TestExpiry(t *testing.T) {
 	tw := New()
 	tw.Register("alpha", "p", 0)
-	tw.RequestClearance("alpha", "temp.go", protocol.ModeExclusive, "", time.Millisecond)
+	tw.RequestClearance("alpha", "", "temp.go", protocol.ModeExclusive, "", time.Millisecond)
 	time.Sleep(5 * time.Millisecond)
 	tw.Sweep()
 	if got := len(tw.Clearances()); got != 0 {
@@ -112,8 +112,8 @@ func TestExpiry(t *testing.T) {
 
 func TestBoardPostAndRead(t *testing.T) {
 	tw := New()
-	tw.PostBoard("alpha", protocol.KindFlightPlan, "refactoring auth", []string{"auth.go"})
-	tw.PostBoard("bravo", protocol.KindDone, "finished migrations", nil)
+	tw.PostBoard("alpha", "", protocol.KindFlightPlan, "refactoring auth", []string{"auth.go"})
+	tw.PostBoard("bravo", "", protocol.KindDone, "finished migrations", nil)
 	entries := tw.ReadBoard(10)
 	if len(entries) != 2 {
 		t.Fatalf("expected 2 board entries, got %d", len(entries))
@@ -126,7 +126,7 @@ func TestBoardPostAndRead(t *testing.T) {
 func TestDeregisterReleasesHolds(t *testing.T) {
 	tw := New()
 	tw.Register("alpha", "p", 0)
-	tw.RequestClearance("alpha", "a.go", protocol.ModeExclusive, "", 0)
+	tw.RequestClearance("alpha", "", "a.go", protocol.ModeExclusive, "", 0)
 	tw.Deregister("alpha")
 	if len(tw.Clearances()) != 0 {
 		t.Fatalf("deregister should release holds, %d left", len(tw.Clearances()))
@@ -139,7 +139,7 @@ func TestDeregisterReleasesHolds(t *testing.T) {
 func TestHeartbeatExtendsLease(t *testing.T) {
 	tw := New()
 	tw.Register("alpha", "p", 0)
-	r := tw.RequestClearance("alpha", "a.go", protocol.ModeExclusive, "", time.Minute)
+	r := tw.RequestClearance("alpha", "", "a.go", protocol.ModeExclusive, "", time.Minute)
 	before := r.Clearance.ExpiresAt
 	time.Sleep(2 * time.Millisecond)
 	if !tw.Heartbeat("alpha") {
@@ -156,10 +156,10 @@ func TestFlightPlanWarnsAdvisory(t *testing.T) {
 	tw.Register("alpha", "p", 0)
 	tw.Register("bravo", "p", 0)
 	// Alpha files a flight plan over a directory but holds no clearance.
-	tw.PostBoard("alpha", protocol.KindFlightPlan, "reworking auth", []string{"auth/"})
+	tw.PostBoard("alpha", "", protocol.KindFlightPlan, "reworking auth", []string{"auth/"})
 
 	// Bravo reaches for a file under that plan: cleared, but warned.
-	r := tw.RequestClearance("bravo", "auth/login.go", protocol.ModeAdvisory, "", 0)
+	r := tw.RequestClearance("bravo", "", "auth/login.go", protocol.ModeAdvisory, "", 0)
 	if !r.Granted {
 		t.Fatalf("a flight plan must never block, only warn; got %+v", r)
 	}
@@ -175,10 +175,10 @@ func TestFlightPlanFromDepartedAgentIsIgnored(t *testing.T) {
 	tw := New()
 	tw.Register("alpha", "p", 0)
 	tw.Register("bravo", "p", 0)
-	tw.PostBoard("alpha", protocol.KindFlightPlan, "reworking auth", []string{"auth/"})
+	tw.PostBoard("alpha", "", protocol.KindFlightPlan, "reworking auth", []string{"auth/"})
 	tw.Deregister("alpha") // alpha leaves; its plan must stop warning
 
-	r := tw.RequestClearance("bravo", "auth/login.go", protocol.ModeAdvisory, "", 0)
+	r := tw.RequestClearance("bravo", "", "auth/login.go", protocol.ModeAdvisory, "", 0)
 	if r.Advisory {
 		t.Fatalf("a plan from a departed agent should not warn; got %+v", r)
 	}
@@ -190,8 +190,8 @@ func TestAdvisoryOverlapPublishesEvent(t *testing.T) {
 	defer tw.Broker().Unsubscribe(id)
 	tw.Register("alpha", "p", 0)
 	tw.Register("bravo", "p", 0)
-	tw.RequestClearance("alpha", "shared.go", protocol.ModeAdvisory, "", 0)
-	tw.RequestClearance("bravo", "shared.go", protocol.ModeAdvisory, "", 0)
+	tw.RequestClearance("alpha", "", "shared.go", protocol.ModeAdvisory, "", 0)
+	tw.RequestClearance("bravo", "", "shared.go", protocol.ModeAdvisory, "", 0)
 
 	deadline := time.After(time.Second)
 	for {
@@ -214,10 +214,10 @@ func TestConflictHolderDeterministic(t *testing.T) {
 		tw.Register("alpha", "p", 0)
 		tw.Register("bravo", "p", 0)
 		tw.Register("charlie", "p", 0)
-		tw.RequestClearance("alpha", "a.go", protocol.ModeAdvisory, "", 0)
+		tw.RequestClearance("alpha", "", "a.go", protocol.ModeAdvisory, "", 0)
 		time.Sleep(time.Millisecond)
-		tw.RequestClearance("bravo", "a.go", protocol.ModeAdvisory, "", 0)
-		res := tw.RequestClearance("charlie", "a.go", protocol.ModeExclusive, "", 0)
+		tw.RequestClearance("bravo", "", "a.go", protocol.ModeAdvisory, "", 0)
+		res := tw.RequestClearance("charlie", "", "a.go", protocol.ModeExclusive, "", 0)
 		if res.Granted {
 			t.Fatalf("run %d: exclusive over advisory holds should be denied", i)
 		}
@@ -237,10 +237,10 @@ func TestConcurrentRequests(t *testing.T) {
 			defer wg.Done()
 			cs := fmt.Sprintf("agent-%d", n)
 			tw.Register(cs, "p", 0)
-			tw.RequestClearance(cs, fmt.Sprintf("file-%d.go", n%5), protocol.ModeAdvisory, "", 0)
-			tw.PostBoard(cs, protocol.KindNote, "hi", nil)
+			tw.RequestClearance(cs, "", fmt.Sprintf("file-%d.go", n%5), protocol.ModeAdvisory, "", 0)
+			tw.PostBoard(cs, "", protocol.KindNote, "hi", nil)
 			tw.WhosFlying()
-			tw.Check(fmt.Sprintf("file-%d.go", n%5))
+			tw.Check("", fmt.Sprintf("file-%d.go", n%5))
 			tw.Handoff(cs, "")
 		}(i)
 	}

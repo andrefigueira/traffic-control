@@ -153,7 +153,7 @@ func TestHookPreToolUseGrants(t *testing.T) {
 func TestHookPreToolUseAdvisoryInjectsContext(t *testing.T) {
 	c, _ := startTower(t)
 	// Another agent already holds the path, advisory.
-	if _, err := c.RequestClearance(context.Background(), "other", "shared.go", protocol.ModeAdvisory, "", 0); err != nil {
+	if _, err := c.RequestClearance(context.Background(), "other", "", "shared.go", protocol.ModeAdvisory, "", 0); err != nil {
 		t.Fatal(err)
 	}
 	in := hookInput{SessionID: "me", ToolName: "Edit", ToolInput: json.RawMessage(`{"file_path":"shared.go"}`)}
@@ -172,7 +172,7 @@ func TestHookPreToolUseAdvisoryInjectsContext(t *testing.T) {
 func TestHookPreToolUseEnforceDenies(t *testing.T) {
 	c, _ := startTower(t)
 	t.Setenv("TC_ENFORCE", "1")
-	if _, err := c.RequestClearance(context.Background(), "other", "locked.go", protocol.ModeAdvisory, "", 0); err != nil {
+	if _, err := c.RequestClearance(context.Background(), "other", "", "locked.go", protocol.ModeAdvisory, "", 0); err != nil {
 		t.Fatal(err)
 	}
 	in := hookInput{SessionID: "me", ToolName: "Write", ToolInput: json.RawMessage(`{"file_path":"locked.go"}`)}
@@ -223,10 +223,10 @@ func TestHoldTimeout(t *testing.T) {
 func TestWaitForClearanceGrantsWhenReleased(t *testing.T) {
 	c, _ := startTower(t)
 	ctx := context.Background()
-	if _, err := c.RequestClearance(ctx, "other", "x.go", protocol.ModeExclusive, "", 0); err != nil {
+	if _, err := c.RequestClearance(ctx, "other", "", "x.go", protocol.ModeExclusive, "", 0); err != nil {
 		t.Fatal(err)
 	}
-	initial, err := c.RequestClearance(ctx, "me", "x.go", protocol.ModeExclusive, "", 0)
+	initial, err := c.RequestClearance(ctx, "me", "", "x.go", protocol.ModeExclusive, "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +238,7 @@ func TestWaitForClearanceGrantsWhenReleased(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 		_, _ = c.Handoff(context.Background(), "other", "")
 	}()
-	res, err := waitForClearance(ctx, c, "me", "x.go", protocol.ModeExclusive, 3*time.Second, initial)
+	res, err := waitForClearance(ctx, c, "me", "", "x.go", protocol.ModeExclusive, 3*time.Second, initial)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,15 +250,15 @@ func TestWaitForClearanceGrantsWhenReleased(t *testing.T) {
 func TestWaitForClearanceTimesOut(t *testing.T) {
 	c, _ := startTower(t)
 	ctx := context.Background()
-	if _, err := c.RequestClearance(ctx, "other", "y.go", protocol.ModeExclusive, "", 0); err != nil {
+	if _, err := c.RequestClearance(ctx, "other", "", "y.go", protocol.ModeExclusive, "", 0); err != nil {
 		t.Fatal(err)
 	}
-	initial, err := c.RequestClearance(ctx, "me", "y.go", protocol.ModeExclusive, "", 0)
+	initial, err := c.RequestClearance(ctx, "me", "", "y.go", protocol.ModeExclusive, "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	start := time.Now()
-	res, err := waitForClearance(ctx, c, "me", "y.go", protocol.ModeExclusive, 600*time.Millisecond, initial)
+	res, err := waitForClearance(ctx, c, "me", "", "y.go", protocol.ModeExclusive, 600*time.Millisecond, initial)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +274,7 @@ func TestHookPreToolUseHoldingPatternClears(t *testing.T) {
 	c, _ := startTower(t)
 	t.Setenv("TC_ENFORCE", "1")
 	t.Setenv("TC_HOLD_TIMEOUT", "3")
-	if _, err := c.RequestClearance(context.Background(), "other", "shared.go", protocol.ModeAdvisory, "", 0); err != nil {
+	if _, err := c.RequestClearance(context.Background(), "other", "", "shared.go", protocol.ModeAdvisory, "", 0); err != nil {
 		t.Fatal(err)
 	}
 	go func() {
@@ -293,7 +293,7 @@ func TestHookPreToolUseHoldingPatternDeniesOnTimeout(t *testing.T) {
 	t.Setenv("TC_ENFORCE", "1")
 	t.Setenv("TC_HOLD_TIMEOUT", "1")
 	// Held for the whole test, never released, so the wait must end in a denial.
-	if _, err := c.RequestClearance(context.Background(), "other", "locked.go", protocol.ModeExclusive, "", 0); err != nil {
+	if _, err := c.RequestClearance(context.Background(), "other", "", "locked.go", protocol.ModeExclusive, "", 0); err != nil {
 		t.Fatal(err)
 	}
 	in := hookInput{SessionID: "me", ToolName: "Edit", ToolInput: json.RawMessage(`{"file_path":"locked.go"}`)}
@@ -310,7 +310,7 @@ func TestHookPreToolUseHoldingPatternDeniesOnTimeout(t *testing.T) {
 
 func TestHookStopHandsOff(t *testing.T) {
 	c, tw := startTower(t)
-	if _, err := c.RequestClearance(context.Background(), "claude-me", "x.go", protocol.ModeExclusive, "", 0); err != nil {
+	if _, err := c.RequestClearance(context.Background(), "claude-me", "", "x.go", protocol.ModeExclusive, "", 0); err != nil {
 		t.Fatal(err)
 	}
 	hookStop(hookInput{SessionID: "me"})
@@ -348,7 +348,7 @@ func TestHookPostToolUseRefreshesLease(t *testing.T) {
 	if _, err := c.Register(ctx, "claude-me", "p", 0); err != nil {
 		t.Fatal(err)
 	}
-	r, err := c.RequestClearance(ctx, "claude-me", "x.go", protocol.ModeExclusive, "", 60)
+	r, err := c.RequestClearance(ctx, "claude-me", "", "x.go", protocol.ModeExclusive, "", 60)
 	if err != nil {
 		t.Fatal(err)
 	}
