@@ -30,7 +30,7 @@ Coordinate (talk to a running tower):
   check PATH       Show whether a path is already held
   whos-flying      List the agents currently checked in
   board            Read the broadcast board
-  watch            Stream the frequency (live events)
+  watch            Stream the frequency (live events; --notify for desktop alerts)
 
 Claude Code integration:
   hook EVENT       Hook entrypoint (session-start | pre-tool-use | post-tool-use | stop)

@@ -168,6 +168,10 @@ func cmdBoard(args []string) error {
 }
 
 func cmdWatch(args []string) error {
+	fs := flag.NewFlagSet("watch", flag.ExitOnError)
+	doNotify := fs.Bool("notify", false, "pop a desktop notification on conflict and overlap events")
+	_ = fs.Parse(args)
+
 	c := mustCli()
 	ctx, cancel := backgroundCtx()
 	defer cancel()
@@ -189,6 +193,9 @@ func cmdWatch(args []string) error {
 			for ev := range events {
 				gotEvent = true
 				fmt.Printf("%s  %-22s %v\n", ev.At.Format("15:04:05"), ev.Type, summarize(ev.Payload))
+				if *doNotify {
+					maybeNotify(ev)
+				}
 			}
 		}
 		if ctx.Err() != nil {

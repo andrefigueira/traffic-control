@@ -33,7 +33,7 @@ The point where it stops being a toy and starts saving real work.
 
 Exit criteria: two Claude Code agents in the same tree, the second is held in a pattern when it reaches for a file the first is editing and told who holds it.
 
-## Phase 3: Robustness (in progress)
+## Phase 3: Robustness (done)
 
 Make it trustworthy enough to leave running.
 
@@ -43,15 +43,15 @@ Make it trustworthy enough to leave running.
 - [x] Leases refresh on a `PostToolUse` heartbeat, so an active agent's holds do not expire mid-turn. The lease is now documented as a crash backstop, since `Stop` hands holds off every turn by design.
 - [x] Flight-plan paths drive advisory warnings that persist across turns, and an advisory overlap emits its own event
 - [x] Path canonicalization: absolute vs relative, symlinks, and case-insensitive filesystems no longer miss the same physical file
-- [ ] Durable storage so a tower restart keeps the board
-- [ ] Close the Bash edit bypass, or scope it out explicitly
+- [x] Durable storage so a tower restart keeps the board: the board is snapshotted to the state dir and reloaded on boot (holds and presence stay in memory by design)
+- [x] Close the Bash edit bypass: the Bash hooks snapshot the working tree and diff it after the command, claiming advisory holds for whatever changed (after-the-fact awareness, needs a git work tree)
 
-## Phase 4: The scope (in progress)
+## Phase 4: The scope (done)
 
 Make the coordination visible to the human in the loop.
 
 - [x] Web dashboard (the scope): live presence, who holds what clearance, the rolling board, and the event frequency, served by the tower and updating over SSE
-- [ ] Notifications for conflict alerts and announcements (OS-level, beyond the in-page frequency)
+- [x] Notifications for conflict alerts and overlaps (OS-level via `tc watch --notify`, beyond the in-page frequency)
 
 ## Phase 5: Beyond one machine (maybe)
 
@@ -61,9 +61,11 @@ Only if demand is real.
 - [ ] Multi-machine coordination over a shared broker
 - [ ] Editor integrations beyond Claude Code
 
-## Next: semantic coupling
+## Next: semantic coupling (first cut shipped)
 
-The biggest remaining gap is the one clearance cannot see: one agent changing a function signature while another edits a caller in a different file. A lightweight exported-symbol index (ctags or tree-sitter style), fed into the board as an advisory "an agent recently touched a file that defines a symbol you reference" hint, is the most defensible next step, because no other shared-tree coordinator attempts it. It ships advisory-only and is measured for false-positive rate before it earns a hard mode.
+The biggest remaining gap is the one clearance cannot see: one agent changing a function signature while another edits a caller in a different file. A first cut has shipped: with `TC_SYMBOLS=1`, `PreToolUse` warns when the Go file you are about to edit and a file another agent holds share an exported symbol that one defines and the other uses. It is a heuristic (regex over source, kept dependency-free), Go-only, advisory, and off by default.
+
+Remaining work: broaden beyond Go, measure the false-positive rate on real sessions before it could earn a hard mode, and consider feeding the signal onto the board rather than only into the editing agent's context.
 
 ## Open questions
 

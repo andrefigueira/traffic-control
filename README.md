@@ -110,7 +110,7 @@ Or open `http://127.0.0.1:7700/` directly. It shows, live over the event stream:
 | `tc check PATH` | Is this path already held |
 | `tc whos-flying` | List checked-in agents |
 | `tc board` | Read the broadcast board |
-| `tc watch` | Stream the live frequency (reconnects on its own) |
+| `tc watch` | Stream the live frequency (reconnects on its own; `--notify` for desktop alerts) |
 | `tc stop` | Stop an auto-started tower |
 | `tc doctor` | Check the setup: tower reachable, hooks and MCP wired |
 | `tc uninstall-claude` | Remove the Claude Code wiring `install-claude` added |

@@ -6,6 +6,7 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ### Added
 
+- **Desktop notifications.** `tc watch --notify` pops an OS-level notification (macOS and Linux) on conflict alerts and advisory overlaps, the events worth surfacing when you are not watching the scope. Best-effort, like opening the browser: a platform without a notifier simply does nothing. This closes the last open Phase 4 item.
 - **`tc doctor`.** A setup check that reports whether the tower is reachable, the working tree is a git repo, and the project's Claude hooks and MCP server are wired, so it is obvious at a glance why coordination is or is not happening.
 - **`tc uninstall-claude`.** The inverse of `install-claude`: removes the hooks and MCP server this tool added and leaves the rest of the config untouched. Idempotent, and it only strips its own hook objects, so a matcher entry shared with another tool keeps that tool's hooks.
 - **MIT license.** The project is now MIT licensed (`LICENSE`), matching the contribution invite in the README.
