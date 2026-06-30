@@ -11,6 +11,10 @@ All notable changes to this project are recorded here. The format follows [Keep 
 - **`tc uninstall-claude`.** The inverse of `install-claude`: removes the hooks and MCP server this tool added and leaves the rest of the config untouched. Idempotent, and it only strips its own hook objects, so a matcher entry shared with another tool keeps that tool's hooks.
 - **MIT license.** The project is now MIT licensed (`LICENSE`), matching the contribution invite in the README.
 
+### Changed
+
+- **Symbol-coupling awareness now covers TypeScript/JavaScript and Python, not just Go.** Each language has its own exported-declaration patterns, and coupling is only compared within one language, so a Go `Process` and a Python `Process` never cross-warn. Still `TC_SYMBOLS=1`, heuristic, and advisory.
+
 ## [0.1.0] - 2026-06-29
 
 ### Reliability follow-ups

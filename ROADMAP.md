@@ -65,7 +65,9 @@ Only if demand is real.
 
 The biggest remaining gap is the one clearance cannot see: one agent changing a function signature while another edits a caller in a different file. A first cut has shipped: with `TC_SYMBOLS=1`, `PreToolUse` warns when the Go file you are about to edit and a file another agent holds share an exported symbol that one defines and the other uses. It is a heuristic (regex over source, kept dependency-free), Go-only, advisory, and off by default.
 
-Remaining work: broaden beyond Go, measure the false-positive rate on real sessions before it could earn a hard mode, and consider feeding the signal onto the board rather than only into the editing agent's context.
+It now covers Go, TypeScript/JavaScript, and Python, comparing only files of the same language.
+
+Remaining work: measure the false-positive rate on real sessions before it could earn a hard mode, broaden to more languages, and consider feeding the signal onto the board rather than only into the editing agent's context.
 
 ## Open questions
 

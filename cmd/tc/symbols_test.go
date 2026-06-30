@@ -116,6 +116,97 @@ func TestSymbolCouplingIgnoresNonGoAndSelf(t *testing.T) {
 	}
 }
 
+func TestLangOf(t *testing.T) {
+	cases := map[string]string{
+		"a.go": "go", "src/b.ts": "ts", "c.tsx": "ts", "d.js": "ts", "e.jsx": "ts",
+		"f.mjs": "ts", "g.py": "py", "README.md": "", "Makefile": "", "h.rb": "",
+	}
+	for path, want := range cases {
+		if got := langOf(path); got != want {
+			t.Fatalf("langOf(%q) = %q, want %q", path, got, want)
+		}
+	}
+}
+
+func TestDefinedSymbolsTypeScript(t *testing.T) {
+	src := []byte(`export function authenticate(u: string) {}
+export const TokenStore = new Map()
+export class SessionManager {}
+export interface Clearance {}
+function notExported() {}
+const internalThing = 1
+`)
+	got := map[string]bool{}
+	for _, s := range definedSymbols("x.ts", src) {
+		got[s] = true
+	}
+	for _, want := range []string{"authenticate", "TokenStore", "SessionManager", "Clearance"} {
+		if !got[want] {
+			t.Fatalf("expected %q in %v", want, got)
+		}
+	}
+	if got["notExported"] || got["internalThing"] {
+		t.Fatalf("non-exported names should be excluded, got %v", got)
+	}
+}
+
+func TestDefinedSymbolsPython(t *testing.T) {
+	src := []byte("def authenticate(user):\n    pass\n\nclass SessionManager:\n    def method(self):\n        pass\n\ndef _private():\n    pass\n")
+	got := map[string]bool{}
+	for _, s := range definedSymbols("x.py", src) {
+		got[s] = true
+	}
+	if !got["authenticate"] || !got["SessionManager"] {
+		t.Fatalf("expected top-level def/class, got %v", got)
+	}
+	if got["method"] {
+		t.Fatal("indented (method) defs should be excluded")
+	}
+	if got["_private"] {
+		t.Fatal("underscore-private names should be excluded")
+	}
+}
+
+func TestSymbolCouplingTypeScript(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, dir, "auth.ts", "export function authenticate(u: string) { return true }\n")
+	mustWrite(t, dir, "login.ts", "import { authenticate } from './auth'\nfunction run() { authenticate('a') }\n")
+	held := []protocol.Clearance{{Path: "auth.ts", Holder: "other"}}
+	msgs := symbolCoupling("login.ts", dir, held, "me")
+	if len(msgs) != 1 || !strings.Contains(msgs[0], "authenticate") {
+		t.Fatalf("expected a TS coupling note, got %v", msgs)
+	}
+}
+
+func TestSymbolCouplingPython(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, dir, "service.py", "def authenticate(user):\n    return True\n")
+	mustWrite(t, dir, "views.py", "from service import authenticate\n\ndef handler():\n    authenticate('x')\n")
+	held := []protocol.Clearance{{Path: "service.py", Holder: "other"}}
+	msgs := symbolCoupling("views.py", dir, held, "me")
+	if len(msgs) != 1 || !strings.Contains(msgs[0], "authenticate") {
+		t.Fatalf("expected a Python coupling note, got %v", msgs)
+	}
+}
+
+func TestSymbolCouplingDoesNotCrossLanguages(t *testing.T) {
+	dir := t.TempDir()
+	// Same symbol name in two languages must not couple across them.
+	mustWrite(t, dir, "thing.go", "package x\nfunc Process() {}\n")
+	mustWrite(t, dir, "thing.py", "def use():\n    Process()\n")
+	held := []protocol.Clearance{{Path: "thing.go", Holder: "other"}}
+	if msgs := symbolCoupling("thing.py", dir, held, "me"); len(msgs) != 0 {
+		t.Fatalf("Go and Python files should not couple, got %v", msgs)
+	}
+}
+
+func mustWrite(t *testing.T, dir, name, body string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestHookPreToolUseSymbolAdvisory(t *testing.T) {
 	c, _ := startTower(t)
 	t.Setenv("TC_SYMBOLS", "1")
