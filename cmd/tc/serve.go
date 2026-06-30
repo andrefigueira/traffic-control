@@ -36,6 +36,13 @@ func cmdServe(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Record activity to a durable log so a run can be reviewed afterwards with
+	// `tc report`. Opt out with TC_NO_LOG=1.
+	if os.Getenv("TC_NO_LOG") != "1" {
+		go streamEventLog(ctx, tw, eventLogPath())
+		fmt.Fprintf(os.Stderr, "logging activity to %s\n", eventLogPath())
+	}
+
 	// Claim the pidfile only after the bind succeeds, so a tower that lost the
 	// race for the port cannot overwrite the live tower's pidfile.
 	if err := writePidFile(); err == nil {

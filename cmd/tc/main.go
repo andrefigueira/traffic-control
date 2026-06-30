@@ -21,6 +21,7 @@ Daemon:
   status           Show tower health and who is currently flying
   scope            Open the live dashboard (the scope) in your browser
   doctor           Check the setup: tower reachable, hooks and MCP wired
+  report           Summarize the activity log: agents, clearances, conflicts caught
 
 Coordinate (talk to a running tower):
   flightplan MSG   Post a flight plan to the board (what you are about to do)
@@ -71,6 +72,8 @@ func main() {
 		err = cmdScope(args)
 	case "doctor":
 		err = cmdDoctor(args)
+	case "report":
+		err = cmdReport(args)
 	case "flightplan":
 		err = cmdBoardPost(args, "flightplan")
 	case "done":

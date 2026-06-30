@@ -113,6 +113,7 @@ Or open `http://127.0.0.1:7700/` directly. It shows, live over the event stream:
 | `tc watch` | Stream the live frequency (reconnects on its own; `--notify` for desktop alerts) |
 | `tc stop` | Stop an auto-started tower |
 | `tc doctor` | Check the setup: tower reachable, hooks and MCP wired |
+| `tc report` | Summarize the activity log: agents, clearances, conflicts caught |
 | `tc uninstall-claude` | Remove the Claude Code wiring `install-claude` added |
 
 ## What it catches, and what it does not
