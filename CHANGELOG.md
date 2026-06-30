@@ -4,6 +4,8 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-30
+
 ### Added
 
 - **Desktop notifications.** `tc watch --notify` pops an OS-level notification (macOS and Linux) on conflict alerts and advisory overlaps, the events worth surfacing when you are not watching the scope. Best-effort, like opening the browser: a platform without a notifier simply does nothing. This closes the last open Phase 4 item.
